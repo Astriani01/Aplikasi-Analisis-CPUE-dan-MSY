@@ -6,7 +6,7 @@ import io
 
 st.set_page_config(page_title="Analisis CPUE dan MSY - PPN Karangantu", layout="wide")
 
-st.title("🐟 Analisis CPUE dan MSY Ikan di PPN Karangantu")
+st.title("🐟 Analisis CPUE dan MSY Ikan yang di daratkan di PPN Karangantu")
 
 st.markdown("""
 Aplikasi ini digunakan untuk menganalisis **Catch Per Unit Effort (CPUE)** dan **Maximum Sustainable Yield (MSY)** 
@@ -129,3 +129,4 @@ if df is not None:
         st.success(f"Prediksi tangkapan pada {sim_upaya:.2f} trip: **{pred_catch:.2f} kg**")
 else:
     st.info("Silakan upload file atau input data manual untuk mulai analisis.")
+
