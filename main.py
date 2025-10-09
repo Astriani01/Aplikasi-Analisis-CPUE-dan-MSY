@@ -6,7 +6,7 @@ import io
 
 st.set_page_config(page_title="Analisis CPUE dan MSY - PPN Karangantu", layout="wide")
 
-st.title("🐟 Analisis CPUE dan MSY Ikan yang di daratkan di PPN Karangantu")
+st.title("🐟 Analisis CPUE dan MSY Ikan yang Didaratkan di PPN Karangantu")
 
 st.markdown("""
 Aplikasi ini digunakan untuk menganalisis **Catch Per Unit Effort (CPUE)** dan **Maximum Sustainable Yield (MSY)** 
@@ -78,6 +78,10 @@ else:
 # ------------------------------------------------------
 if df is not None:
     df = deteksi_kolom(df)
+
+    # Format kolom tahun tanpa koma
+    df["tahun"] = df["tahun"].astype(str)
+
     st.subheader("📋 Data Awal")
     st.dataframe(df)
 
@@ -88,13 +92,14 @@ if df is not None:
         df["CPUE"] = df["tangkapan"] / df["upaya"]
 
         st.subheader("📊 Data dengan CPUE")
-        st.dataframe(df)
+        st.dataframe(df.style.format({"tangkapan": "{:.2f}", "upaya": "{:.3f}", "CPUE": "{:.3f}"}))
 
-        # Regresi Linear
+        # Regresi Linear: CPUE = a + bE
         x = df["upaya"]
         y = df["CPUE"]
         a, b = np.polyfit(x, y, 1)
 
+        # Hitung MSY (Model Schaefer)
         Emsy = -a / (2 * b)
         MSY = a**2 / (-4 * b)
         tingkat_pemanfaatan = (df["tangkapan"].mean() / MSY) * 100
@@ -112,21 +117,43 @@ if df is not None:
         else:
             st.error("🔴 Overfishing! Kurangi upaya penangkapan.")
 
-        # Grafik CPUE vs Upaya
+        # ------------------------------------------------------
+        # Grafik CPUE vs Upaya (regresi linear)
+        # ------------------------------------------------------
         st.subheader("📈 Hubungan Upaya dan CPUE")
         fig, ax = plt.subplots()
-        ax.scatter(x, y, color="blue", label="Data")
+        ax.scatter(x, y, color="blue", label="Data CPUE")
         ax.plot(x, a + b*x, color="red", label=f"Regresi: CPUE = {a:.3f} + {b:.5f}E")
         ax.set_xlabel("Upaya (trip)")
         ax.set_ylabel("CPUE (kg/trip)")
         ax.legend()
         st.pyplot(fig)
 
+        # ------------------------------------------------------
+        # Kurva Parabola (C = aE + bE²)
+        # ------------------------------------------------------
+        st.subheader("🌊 Kurva Hubungan Upaya dan Hasil Tangkapan (Model Schaefer)")
+        E = np.linspace(0, df["upaya"].max() * 1.5, 200)
+        C = E * (a + b * E)  # C = E × CPUE
+
+        fig2, ax2 = plt.subplots()
+        ax2.plot(E, C, color="green", label="Kurva Produksi (C = aE + bE²)")
+        ax2.axvline(Emsy, color="orange", linestyle="--", label=f"E_MSY = {Emsy:.2f}")
+        ax2.axhline(MSY, color="red", linestyle="--", label=f"MSY = {MSY:.2f} kg")
+        ax2.scatter(df["upaya"], df["tangkapan"], color="blue", label="Data Aktual")
+        ax2.set_xlabel("Upaya (trip)")
+        ax2.set_ylabel("Tangkapan (kg)")
+        ax2.legend()
+        st.pyplot(fig2)
+
+        # ------------------------------------------------------
         # Simulasi interaktif
+        # ------------------------------------------------------
         st.subheader("🎛 Simulasi Interaktif MSY")
         sim_upaya = st.slider("Atur nilai upaya (trip)", 0.0, float(df["upaya"].max() * 1.5), float(df["upaya"].mean()))
         pred_catch = sim_upaya * (a + b * sim_upaya)
         st.success(f"Prediksi tangkapan pada {sim_upaya:.2f} trip: **{pred_catch:.2f} kg**")
+
 else:
     st.info("Silakan upload file atau input data manual untuk mulai analisis.")
 
