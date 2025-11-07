@@ -2,69 +2,853 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 import io
 from scipy import stats
+from scipy.optimize import curve_fit
 import warnings
+from matplotlib.ticker import FuncFormatter
 
 warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="Analisis CPUE & MSY - Model Schaefer", layout="wide")
-st.title("🐟 Analisis CPUE dan MSY dengan Standarisasi Alat Tangkap")
+st.set_page_config(
+    page_title="Analisis CPUE & MSY - Multi Model", 
+    layout="wide",
+    page_icon="🐟"
+)
+
+st.title("🐟 Analisis CPUE dan MSY dengan Multi-Model")
 
 # ==============================================
-# KONFIGURASI ALAT TANGKAP DAN TAHUN YANG FLEKSIBEL
+# INISIALISASI SESSION STATE
 # ==============================================
+def initialize_session_state():
+    """Inisialisasi session state untuk konfigurasi dan data"""
+    if 'gear_config' not in st.session_state:
+        st.session_state.gear_config = {
+            'gears': ['Jaring_Insang_Tetap', 'Jaring_Hela_Dasar', 'Bagan_Berperahu', 'Pancing'],
+            'display_names': ['Jaring Insang Tetap', 'Jaring Hela Dasar', 'Bagan Berperahu', 'Pancing'],
+            'standard_gear': 'Jaring_Hela_Dasar',
+            'years': [2018, 2019, 2020, 2021, 2022, 2023],
+            'num_years': 6
+        }
 
-# Inisialisasi session state untuk konfigurasi
-if 'gear_config' not in st.session_state:
-    st.session_state.gear_config = {
-        'gears': ['Jaring_Insang_Tetap', 'Jaring_Hela_Dasar', 'Bagan_Berperahu', 'Pancing'],
-        'display_names': ['Jaring Insang Tetap', 'Jaring Hela Dasar', 'Bagan Berperahu', 'Pancing'],
-        'standard_gear': 'Jaring_Hela_Dasar',
-        'years': [2020, 2021, 2022, 2023, 2024],
-        'num_years': 5
+    if 'data_tables' not in st.session_state:
+        st.session_state.data_tables = {
+            'production': [
+                {'Tahun': 2018, 'Jaring_Insang_Tetap': 1004, 'Jaring_Hela_Dasar': 6105, 'Bagan_Berperahu': 628, 'Pancing': 811, 'Jumlah': 8548},
+                {'Tahun': 2019, 'Jaring_Insang_Tetap': 2189, 'Jaring_Hela_Dasar': 10145, 'Bagan_Berperahu': 77, 'Pancing': 396, 'Jumlah': 12807},
+                {'Tahun': 2020, 'Jaring_Insang_Tetap': 122, 'Jaring_Hela_Dasar': 9338, 'Bagan_Berperahu': 187, 'Pancing': 311, 'Jumlah': 9958},
+                {'Tahun': 2021, 'Jaring_Insang_Tetap': 8, 'Jaring_Hela_Dasar': 10439, 'Bagan_Berperahu': 377, 'Pancing': 418, 'Jumlah': 11242},
+                {'Tahun': 2022, 'Jaring_Insang_Tetap': 23, 'Jaring_Hela_Dasar': 10880, 'Bagan_Berperahu': 189, 'Pancing': 21, 'Jumlah': 11113},
+                {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287},
+                {'Tahun': 2024, 'Jaring_Insang_Tetap': 0, 'Jaring_Hela_Dasar': 12512, 'Bagan_Berperahu': 315, 'Pancing': 85, 'Jumlah': 12912}
+            ],
+            'effort': [
+                {'Tahun': 2018, 'Jaring_Insang_Tetap': 2230, 'Jaring_Hela_Dasar': 5998, 'Bagan_Berperahu': 2434, 'Pancing': 246, 'Jumlah': 10908},
+                {'Tahun': 2019, 'Jaring_Insang_Tetap': 26878, 'Jaring_Hela_Dasar': 10731, 'Bagan_Berperahu': 1385, 'Pancing': 139, 'Jumlah': 39583},
+                {'Tahun': 2020, 'Jaring_Insang_Tetap': 10122, 'Jaring_Hela_Dasar': 7076, 'Bagan_Berperahu': 1915, 'Pancing': 191, 'Jumlah': 19304},
+                {'Tahun': 2021, 'Jaring_Insang_Tetap': 11010, 'Jaring_Hela_Dasar': 7315, 'Bagan_Berperahu': 1445, 'Pancing': 162, 'Jumlah': 19932},
+                {'Tahun': 2022, 'Jaring_Insang_Tetap': 18796, 'Jaring_Hela_Dasar': 10183, 'Bagan_Berperahu': 1151, 'Pancing': 77, 'Jumlah': 30207},
+                {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959},
+                {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
+            ]
+        }
+    
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = None
+    
+    if 'selected_models' not in st.session_state:
+        st.session_state.selected_models = ['Schaefer', 'Fox', 'Pella-Tomlinson']
+    
+    if 'uploaded_data' not in st.session_state:
+        st.session_state.uploaded_data = None
+
+# ==============================================
+# FUNGSI TEMPLATE EXCEL
+# ==============================================
+def create_excel_template():
+    """Buat template Excel untuk diunduh"""
+    
+    # Data contoh untuk template
+    production_data = {
+        'Tahun': [2018, 2019, 2020, 2021, 2022, 2023],
+        'Jaring_Insang_Tetap': [1004, 2189, 122, 8, 23, 67],
+        'Jaring_Hela_Dasar': [6105, 10145, 9338, 10438, 10879, 13174],
+        'Bagan_Berperahu': [628, 77, 187, 377, 189, 33],
+        'Pancing': [811, 396, 311, 418, 21, 13],
+        'Jumlah': [8548, 12807, 9958, 11242, 11113, 13287]
+    }
+    
+    effort_data = {
+        'Tahun': [2018, 2019, 2020, 2021, 2022, 2023],
+        'Jaring_Insang_Tetap': [2230, 26878, 10122, 11010, 18796, 15899],
+        'Jaring_Hela_Dasar': [5998, 10731, 7076, 7315, 10183, 8205],
+        'Bagan_Berperahu': [2434, 1385, 1915, 1445, 1151, 777],
+        'Pancing': [246, 139, 191, 162, 77, 78],
+        'Jumlah': [10908, 39583, 19304, 19932, 30207, 24959]
+    }
+    
+    # Buat DataFrame
+    df_production = pd.DataFrame(production_data)
+    df_effort = pd.DataFrame(effort_data)
+    
+    # Buat file Excel dalam memory
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_production.to_excel(writer, sheet_name='Produksi', index=False)
+        df_effort.to_excel(writer, sheet_name='Upaya', index=False)
+        
+        # Formatting
+        workbook = writer.book
+        
+        # Format untuk sheet Produksi
+        format_production = workbook.add_format({'num_format': '#,##0'})
+        worksheet_production = writer.sheets['Produksi']
+        for col_num, value in enumerate(df_production.columns.values):
+            worksheet_production.set_column(col_num, col_num, 15, format_production)
+        
+        # Format untuk sheet Upaya
+        format_effort = workbook.add_format({'num_format': '#,##0'})
+        worksheet_effort = writer.sheets['Upaya']
+        for col_num, value in enumerate(df_effort.columns.values):
+            worksheet_effort.set_column(col_num, col_num, 15, format_effort)
+    
+    processed_data = output.getvalue()
+    return processed_data
+
+def render_template_section():
+    """Render section untuk download template"""
+    st.header("📋 Template Data Excel")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("""
+        **📝 Struktur Template Excel:**
+        
+        **Sheet 'Produksi' (dalam Ton):**
+        - Kolom A: Tahun
+        - Kolom B-E: Nama alat tangkap (contoh: Jaring_Insang_Tetap, Jaring_Hela_Dasar, dll.)
+        - Kolom F: Jumlah (total)
+        
+        **Sheet 'Upaya' (dalam Trip):**
+        - Kolom A: Tahun
+        - Kolom B-E: Nama alat tangkap (harus sama dengan sheet Produksi)
+        - Kolom F: Jumlah (total)
+        
+        **💡 Tips:**
+        - Nama alat tangkap harus sama di kedua sheet
+        - Tahun harus sama dan berurutan
+        - Data harus numerik (tanpa teks atau karakter khusus)
+        """)
+    
+    with col2:
+        # Download template
+        template_data = create_excel_template()
+        st.download_button(
+            label="📥 Download Template Excel",
+            data=template_data,
+            file_name="Template_Data_Perikanan.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+        
+        st.markdown("""
+        **🔧 Cara Penggunaan:**
+        1. Download template
+        2. Isi dengan data Anda
+        3. Upload file yang sudah diisi
+        4. Klik 'Gunakan Data yang Diupload'
+        """)
+
+# ==============================================
+# FUNGSI UPLOAD DATA YANG DIPERBAIKI
+# ==============================================
+def process_uploaded_file(uploaded_file):
+    """Proses file yang diupload (Excel atau CSV)"""
+    try:
+        if uploaded_file.name.endswith('.xlsx') or uploaded_file.name.endswith('.xls'):
+            # Baca semua sheet
+            excel_data = pd.read_excel(uploaded_file, sheet_name=None)
+            
+            st.info(f"📊 Sheet yang ditemukan: {list(excel_data.keys())}")
+            
+            # PENDETEKSIAN SEDERHANA
+            sheet_names = list(excel_data.keys())
+            
+            if len(sheet_names) >= 2:
+                # Otomatis deteksi berdasarkan urutan
+                production_sheet = excel_data[sheet_names[0]]
+                effort_sheet = excel_data[sheet_names[1]]
+                st.success(f"✅ Menggunakan sheet 1 ({sheet_names[0]}) sebagai Produksi")
+                st.success(f"✅ Menggunakan sheet 2 ({sheet_names[1]}) sebagai Upaya")
+            else:
+                # Hanya ada 1 sheet
+                production_sheet = excel_data[sheet_names[0]]
+                effort_sheet = None
+                st.warning("⚠️ Hanya 1 sheet ditemukan. Data upaya akan dibuat otomatis.")
+                
+        elif uploaded_file.name.endswith('.csv'):
+            # Baca file CSV
+            csv_data = pd.read_csv(uploaded_file)
+            production_sheet = csv_data
+            effort_sheet = None
+            st.info("📊 File CSV dibaca sebagai data produksi")
+            
+        else:
+            st.error("❌ Format file tidak didukung. Harap upload file Excel (.xlsx, .xls) atau CSV (.csv)")
+            return None
+        
+        return {
+            'production': production_sheet,
+            'effort': effort_sheet,
+            'sheet_names': sheet_names if uploaded_file.name.endswith(('.xlsx', '.xls')) else ['CSV File']
+        }
+        
+    except Exception as e:
+        st.error(f"❌ Error membaca file: {str(e)}")
+        return None
+
+def validate_uploaded_data(uploaded_data):
+    """Validasi data yang diupload"""
+    production_df = uploaded_data['production']
+    
+    if production_df is None or production_df.empty:
+        st.error("❌ Data produksi tidak ditemukan atau kosong")
+        return False
+    
+    st.success(f"✅ Data produksi valid: {len(production_df)} baris, {len(production_df.columns)} kolom")
+    st.write(f"📋 Kolom produksi: {list(production_df.columns)}")
+    
+    # Cek data upaya jika ada
+    effort_df = uploaded_data['effort']
+    if effort_df is not None and not effort_df.empty:
+        st.success(f"✅ Data upaya valid: {len(effort_df)} baris, {len(effort_df.columns)} kolom")
+        st.write(f"📋 Kolom upaya: {list(effort_df.columns)}")
+    else:
+        st.warning("⚠️ Data upaya tidak ditemukan, akan dibuat otomatis")
+    
+    return True
+
+def convert_uploaded_data(uploaded_data):
+    """Konversi data yang diupload ke format aplikasi"""
+    production_df = uploaded_data['production']
+    effort_df = uploaded_data['effort']
+    
+    st.write("🔄 Mengkonversi format data...")
+    
+    def process_dataframe(df, data_type="Produksi"):
+        """Proses dataframe menjadi format aplikasi"""
+        # Cari kolom tahun
+        year_columns = ['tahun', 'year', 'tahun', 'thn', 'yr']
+        year_col = None
+        for col in df.columns:
+            if str(col).lower() in year_columns:
+                year_col = col
+                break
+        if year_col is None:
+            year_col = df.columns[0]  # Kolom pertama sebagai tahun
+        
+        # Identifikasi kolom alat tangkap (selain tahun dan total)
+        total_columns = ['jumlah', 'total', 'sum', 'grand total', 'total produksi', 'total upaya']
+        gear_columns = [col for col in df.columns 
+                       if col != year_col and str(col).lower() not in total_columns]
+        
+        st.write(f"🔧 {data_type} - Kolom tahun: '{year_col}'")
+        st.write(f"🔧 {data_type} - Kolom alat tangkap: {gear_columns}")
+        
+        # Konversi data
+        result_data = []
+        for _, row in df.iterrows():
+            try:
+                year_val = row[year_col]
+                if pd.isna(year_val):
+                    continue
+                    
+                # Konversi tahun ke integer
+                try:
+                    year_val = int(float(year_val))
+                except:
+                    continue
+                
+                year_data = {'Tahun': year_val}
+                total = 0
+                
+                for gear in gear_columns:
+                    if gear in row:
+                        value = float(row[gear]) if pd.notna(row[gear]) else 0
+                    else:
+                        value = 0
+                    year_data[gear] = value
+                    total += value
+                
+                year_data['Jumlah'] = total
+                result_data.append(year_data)
+                
+            except Exception as e:
+                st.warning(f"⚠️ Skip baris {data_type} dengan error: {e}")
+                continue
+        
+        return result_data, gear_columns
+    
+    # Proses data produksi
+    production_data, prod_gears = process_dataframe(production_df, "Produksi")
+    
+    # Proses data upaya
+    if effort_df is not None and not effort_df.empty:
+        effort_data, effort_gears = process_dataframe(effort_df, "Upaya")
+        
+        # Pastikan kolom alat tangkap konsisten
+        if set(prod_gears) != set(effort_gears):
+            st.warning("⚠️ Kolom alat tangkap tidak konsisten antara produksi dan upaya")
+            # Gunakan intersection dari kedua set
+            common_gears = list(set(prod_gears) & set(effort_gears))
+            if common_gears:
+                st.info(f"🔧 Menggunakan kolom umum: {common_gears}")
+                gear_columns = common_gears
+            else:
+                st.error("❌ Tidak ada kolom alat tangkap yang sama antara produksi dan upaya")
+                return None
+        else:
+            gear_columns = prod_gears
+    else:
+        # Buat data upaya default
+        st.info("🔄 Membuat data upaya default...")
+        effort_data = []
+        for prod_row in production_data:
+            year_data = {'Tahun': prod_row['Tahun']}
+            total = 0
+            for gear in prod_gears:
+                # Default: upaya = 10x akar kuadrat produksi (lebih realistis)
+                value = max(100, int(np.sqrt(prod_row[gear]) * 10)) if prod_row[gear] > 0 else 100
+                year_data[gear] = value
+                total += value
+            year_data['Jumlah'] = total
+            effort_data.append(year_data)
+        gear_columns = prod_gears
+    
+    st.success(f"✅ Konversi selesai: {len(production_data)} tahun, {len(gear_columns)} alat tangkap")
+    
+    return {
+        'production': production_data,
+        'effort': effort_data,
+        'gears': gear_columns,
+        'display_names': gear_columns
     }
 
-if 'data_tables' not in st.session_state:
-    st.session_state.data_tables = {
-        'production': [],
-        'effort': []
-    }
+def render_upload_section():
+    """Render section untuk upload file"""
+    st.header("📤 Upload Data")
+    
+    # Tampilkan template section
+    render_template_section()
+    
+    st.markdown("---")
+    
+    uploaded_file = st.file_uploader(
+        "Upload file Excel atau CSV data perikanan",
+        type=['xlsx', 'xls', 'csv'],
+        help="Upload file Excel dengan 2 sheet (Produksi dan Upaya) atau file CSV"
+    )
+    
+    if uploaded_file is not None:
+        with st.status("📤 Memproses file...", expanded=True) as status:
+            st.write("📖 Membaca file...")
+            uploaded_data = process_uploaded_file(uploaded_file)
+            
+            if uploaded_data is not None:
+                st.write("✅ File berhasil dibaca")
+                st.write("🔍 Memvalidasi data...")
+                
+                if validate_uploaded_data(uploaded_data):
+                    st.write("✅ Data valid")
+                    st.write("🔄 Mengkonversi format...")
+                    
+                    converted_data = convert_uploaded_data(uploaded_data)
+                    
+                    if converted_data is not None:
+                        st.session_state.uploaded_data = converted_data
+                        status.update(label="✅ Data berhasil diproses!", state="complete")
+                        
+                        # Tampilkan preview
+                        st.subheader("👀 Preview Data")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.write("**📊 Data Produksi**")
+                            st.dataframe(
+                                pd.DataFrame(converted_data['production']).style.format({
+                                    col: "{:,.1f}" for col in converted_data['gears']
+                                }), 
+                                use_container_width=True
+                            )
+                        
+                        with col2:
+                            st.write("**🎣 Data Upaya**")
+                            st.dataframe(
+                                pd.DataFrame(converted_data['effort']).style.format({
+                                    col: "{:,}" for col in converted_data['gears']
+                                }), 
+                                use_container_width=True
+                            )
+                        
+                        # Tombol untuk menggunakan data yang diupload
+                        if st.button("💾 Gunakan Data yang Diupload", type="primary", use_container_width=True):
+                            gears = converted_data['gears']
+                            display_names = converted_data['display_names']
+                            years = [data['Tahun'] for data in converted_data['production']]
+                            
+                            st.session_state.gear_config = {
+                                'gears': gears,
+                                'display_names': display_names,
+                                'standard_gear': gears[0] if gears else 'Jaring_Hela_Dasar',
+                                'years': years,
+                                'num_years': len(years)
+                            }
+                            
+                            st.session_state.data_tables = {
+                                'production': converted_data['production'],
+                                'effort': converted_data['effort']
+                            }
+                            
+                            st.session_state.analysis_results = None
+                            st.success("✅ Data berhasil diterapkan!")
+                            st.rerun()
+                    else:
+                        status.update(label="❌ Gagal mengkonversi data", state="error")
+                else:
+                    status.update(label="❌ Data tidak valid", state="error")
+            else:
+                status.update(label="❌ Gagal membaca file", state="error")
+    
+    return None, None
 
-# Fungsi untuk mendapatkan konfigurasi
+# ==============================================
+# FUNGSI MODEL MSY - MULTI MODEL
+# ==============================================
+def analisis_msy_schaefer(standard_effort_total, cpue_standard_total):
+    """Analisis MSY menggunakan Model Schaefer (Linear)"""
+    if len(standard_effort_total) < 2:
+        return None
+    
+    try:
+        slope, intercept, r_value, p_value, std_err = stats.linregress(standard_effort_total, cpue_standard_total)
+        
+        if slope >= 0:
+            return {'success': False, 'error': 'Slope (b) harus negatif untuk model Schaefer yang valid'}
+        
+        # Hitung MSY parameters
+        F_MSY = -intercept / (2 * slope) if slope != 0 else 0
+        C_MSY = -(intercept ** 2) / (4 * slope) if slope != 0 else 0
+        U_MSY = C_MSY / F_MSY if F_MSY > 0 else 0
+        
+        return {
+            'model': 'Schaefer',
+            'a': intercept, 'b': slope, 'r_squared': r_value ** 2, 'p_value': p_value,
+            'std_err': std_err, 'F_MSY': F_MSY, 'C_MSY': C_MSY, 'U_MSY': U_MSY,
+            'success': True,
+            'equation': f"CPUE = {intercept:.4f} + {slope:.6f} × F"
+        }
+    except Exception as e:
+        return {'success': False, 'error': f'Error dalam model Schaefer: {str(e)}'}
+
+def model_fox(F, a, b):
+    """Model Fox: C = F * exp(a - b*F)"""
+    return F * np.exp(a - b * F)
+
+def analisis_msy_fox(standard_effort_total, production_total):
+    """Analisis MSY menggunakan Model Fox (Exponential)"""
+    if len(standard_effort_total) < 3:
+        return None
+    
+    try:
+        # Initial guess untuk parameter
+        initial_guess = [1.0, 0.001]
+        
+        # Curve fitting
+        popt, pcov = curve_fit(model_fox, standard_effort_total, production_total, p0=initial_guess, maxfev=5000)
+        a, b = popt
+        
+        if b <= 0:
+            return {'success': False, 'error': 'Parameter b harus positif untuk model Fox yang valid'}
+        
+        # Hitung MSY parameters untuk model Fox
+        F_MSY = 1 / b
+        C_MSY = (1 / b) * np.exp(a - 1)
+        U_MSY = C_MSY / F_MSY if F_MSY > 0 else 0
+        
+        # Hitung R-squared
+        predictions = model_fox(standard_effort_total, a, b)
+        ss_res = np.sum((production_total - predictions) ** 2)
+        ss_tot = np.sum((production_total - np.mean(production_total)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        
+        return {
+            'model': 'Fox',
+            'a': a, 'b': b, 'r_squared': r_squared, 'p_value': 0.001,
+            'std_err': np.sqrt(np.diag(pcov))[0], 'F_MSY': F_MSY, 'C_MSY': C_MSY, 'U_MSY': U_MSY,
+            'success': True,
+            'equation': f"C = F × exp({a:.4f} - {b:.6f} × F)"
+        }
+    except Exception as e:
+        return {'success': False, 'error': f'Error dalam model Fox: {str(e)}'}
+
+def model_pella_tomlinson(F, a, b, m):
+    """Model Pella-Tomlinson: C = a*F^m - b*F^(m+1)"""
+    return a * (F ** m) - b * (F ** (m + 1))
+
+def analisis_msy_pella_tomlinson(standard_effort_total, production_total):
+    """Analisis MSY menggunakan Model Pella-Tomlinson (Generalized)"""
+    if len(standard_effort_total) < 4:
+        return None
+    
+    try:
+        # Initial guess untuk parameter (m biasanya sekitar 1-2 untuk perikanan)
+        initial_guess = [1.0, 0.001, 1.5]
+        
+        # Batasan parameter
+        bounds = ([0.1, 0.0001, 0.5], [10.0, 0.1, 3.0])
+        
+        # Curve fitting
+        popt, pcov = curve_fit(model_pella_tomlinson, standard_effort_total, production_total, 
+                              p0=initial_guess, bounds=bounds, maxfev=10000)
+        a, b, m = popt
+        
+        if b <= 0 or m <= 0:
+            return {'success': False, 'error': 'Parameter b dan m harus positif untuk model Pella-Tomlinson yang valid'}
+        
+        # Hitung MSY parameters untuk model Pella-Tomlinson
+        F_MSY = (a * m / (b * (m + 1))) ** (1 / m) if b != 0 and m != 0 else 0
+        C_MSY = model_pella_tomlinson(F_MSY, a, b, m)
+        U_MSY = C_MSY / F_MSY if F_MSY > 0 else 0
+        
+        # Hitung R-squared
+        predictions = model_pella_tomlinson(standard_effort_total, a, b, m)
+        ss_res = np.sum((production_total - predictions) ** 2)
+        ss_tot = np.sum((production_total - np.mean(production_total)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        
+        return {
+            'model': 'Pella-Tomlinson',
+            'a': a, 'b': b, 'm': m, 'r_squared': r_squared, 'p_value': 0.001,
+            'std_err': np.sqrt(np.diag(pcov))[0], 'F_MSY': F_MSY, 'C_MSY': C_MSY, 'U_MSY': U_MSY,
+            'success': True,
+            'equation': f"C = {a:.4f} × F^{m:.3f} - {b:.6f} × F^{m+1:.3f}"
+        }
+    except Exception as e:
+        return {'success': False, 'error': f'Error dalam model Pella-Tomlinson: {str(e)}'}
+
+def bandingkan_model_msy(standard_effort_total, cpue_standard_total, production_total, selected_models):
+    """Bandingkan beberapa model MSY"""
+    results = {}
+    
+    if 'Schaefer' in selected_models:
+        results['Schaefer'] = analisis_msy_schaefer(standard_effort_total, cpue_standard_total)
+    
+    if 'Fox' in selected_models:
+        results['Fox'] = analisis_msy_fox(standard_effort_total, production_total)
+    
+    if 'Pella-Tomlinson' in selected_models:
+        results['Pella-Tomlinson'] = analisis_msy_pella_tomlinson(standard_effort_total, production_total)
+    
+    return results
+
+# ==============================================
+# FUNGSI GRAFIK MSY YANG DITAMBAHKAN
+# ==============================================
+def buat_grafik_msy_schaefer(ax, effort_data, cpue_data, model_results):
+    """Buat grafik MSY untuk model Schaefer"""
+    if not model_results['success']:
+        return
+    
+    # Data observasi
+    ax.scatter(effort_data, cpue_data, color='blue', s=60, zorder=5, label='Data Observasi')
+    
+    # Garis regresi
+    x_fit = np.linspace(0, max(effort_data) * 1.2, 100)
+    y_fit = model_results['a'] + model_results['b'] * x_fit
+    ax.plot(x_fit, y_fit, 'r-', linewidth=2, label='Model Schaefer')
+    
+    # Titik MSY
+    msy_x = model_results['F_MSY']
+    msy_y = model_results['U_MSY']
+    ax.scatter([msy_x], [msy_y], color='green', s=100, zorder=6, label='MSY Point')
+    ax.axvline(x=msy_x, color='green', linestyle='--', alpha=0.7)
+    ax.axhline(y=msy_y, color='green', linestyle='--', alpha=0.7)
+    
+    ax.set_xlabel('Upaya Penangkapan (F)')
+    ax.set_ylabel('CPUE (U)')
+    ax.set_title('Model Schaefer: CPUE vs Upaya')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # Anotasi MSY
+    ax.annotate(f'MSY\nF={msy_x:.1f}\nU={msy_y:.3f}', 
+                xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*1.1),
+                arrowprops=dict(arrowstyle='->', color='green'))
+
+def buat_grafik_produksi_schaefer(ax, effort_data, production_data, model_results):
+    """Buat grafik produksi vs upaya untuk model Schaefer"""
+    if not model_results['success']:
+        return
+    
+    # Data observasi
+    ax.scatter(effort_data, production_data, color='blue', s=60, zorder=5, label='Data Observasi')
+    
+    # Kurva produksi Schaefer: C = aF + bF²
+    x_fit = np.linspace(0, max(effort_data) * 1.2, 100)
+    y_fit = model_results['a'] * x_fit + model_results['b'] * (x_fit ** 2)
+    ax.plot(x_fit, y_fit, 'r-', linewidth=2, label='Kurva Produksi')
+    
+    # Titik MSY
+    msy_x = model_results['F_MSY']
+    msy_y = model_results['C_MSY']
+    ax.scatter([msy_x], [msy_y], color='green', s=100, zorder=6, label='MSY Point')
+    ax.axvline(x=msy_x, color='green', linestyle='--', alpha=0.7)
+    
+    ax.set_xlabel('Upaya Penangkapan (F)')
+    ax.set_ylabel('Produksi (C)')
+    ax.set_title('Model Schaefer: Produksi vs Upaya')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # Anotasi MSY
+    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} ton', 
+                xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*0.9),
+                arrowprops=dict(arrowstyle='->', color='green'))
+
+def buat_grafik_fox(ax, effort_data, production_data, model_results):
+    """Buat grafik untuk model Fox"""
+    if not model_results['success']:
+        return
+    
+    # Data observasi
+    ax.scatter(effort_data, production_data, color='blue', s=60, zorder=5, label='Data Observasi')
+    
+    # Kurva model Fox
+    x_fit = np.linspace(0.1, max(effort_data) * 1.2, 100)
+    y_fit = model_fox(x_fit, model_results['a'], model_results['b'])
+    ax.plot(x_fit, y_fit, 'r-', linewidth=2, label='Model Fox')
+    
+    # Titik MSY
+    msy_x = model_results['F_MSY']
+    msy_y = model_results['C_MSY']
+    ax.scatter([msy_x], [msy_y], color='green', s=100, zorder=6, label='MSY Point')
+    ax.axvline(x=msy_x, color='green', linestyle='--', alpha=0.7)
+    
+    ax.set_xlabel('Upaya Penangkapan (F)')
+    ax.set_ylabel('Produksi (C)')
+    ax.set_title('Model Fox: Produksi vs Upaya')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # Anotasi MSY
+    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} ton', 
+                xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*0.9),
+                arrowprops=dict(arrowstyle='->', color='green'))
+
+def buat_grafik_pella_tomlinson(ax, effort_data, production_data, model_results):
+    """Buat grafik untuk model Pella-Tomlinson"""
+    if not model_results['success']:
+        return
+    
+    # Data observasi
+    ax.scatter(effort_data, production_data, color='blue', s=60, zorder=5, label='Data Observasi')
+    
+    # Kurva model Pella-Tomlinson
+    x_fit = np.linspace(0.1, max(effort_data) * 1.2, 100)
+    y_fit = model_pella_tomlinson(x_fit, model_results['a'], model_results['b'], model_results['m'])
+    ax.plot(x_fit, y_fit, 'r-', linewidth=2, label='Model Pella-Tomlinson')
+    
+    # Titik MSY
+    msy_x = model_results['F_MSY']
+    msy_y = model_results['C_MSY']
+    ax.scatter([msy_x], [msy_y], color='green', s=100, zorder=6, label='MSY Point')
+    ax.axvline(x=msy_x, color='green', linestyle='--', alpha=0.7)
+    
+    ax.set_xlabel('Upaya Penangkapan (F)')
+    ax.set_ylabel('Produksi (C)')
+    ax.set_title('Model Pella-Tomlinson: Produksi vs Upaya')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # Anotasi MSY
+    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} ton', 
+                xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*0.9),
+                arrowprops=dict(arrowstyle='->', color='green'))
+
+def buat_grafik_perbandingan_model(ax, effort_data, production_data, all_results):
+    """Buat grafik perbandingan semua model"""
+    colors = ['red', 'blue', 'orange', 'purple', 'brown']
+    line_styles = ['-', '--', '-.', ':']
+    
+    # Data observasi
+    ax.scatter(effort_data, production_data, color='black', s=80, zorder=5, label='Data Observasi')
+    
+    # Plot setiap model yang berhasil
+    for i, (model_name, results) in enumerate(all_results.items()):
+        if results and results['success']:
+            x_fit = np.linspace(0.1, max(effort_data) * 1.2, 100)
+            
+            if model_name == 'Schaefer':
+                y_fit = results['a'] * x_fit + results['b'] * (x_fit ** 2)
+            elif model_name == 'Fox':
+                y_fit = model_fox(x_fit, results['a'], results['b'])
+            elif model_name == 'Pella-Tomlinson':
+                y_fit = model_pella_tomlinson(x_fit, results['a'], results['b'], results['m'])
+            else:
+                continue
+                
+            ax.plot(x_fit, y_fit, color=colors[i % len(colors)], 
+                   linestyle=line_styles[i % len(line_styles)], 
+                   linewidth=2, label=model_name)
+            
+            # Titik MSY untuk setiap model
+            ax.scatter([results['F_MSY']], [results['C_MSY']], 
+                      color=colors[i % len(colors)], s=100, marker='*', zorder=6)
+    
+    ax.set_xlabel('Upaya Penangkapan (F)')
+    ax.set_ylabel('Produksi (C)')
+    ax.set_title('Perbandingan Model MSY')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_results):
+    """Render grafik MSY yang lengkap"""
+    st.header("📈 Grafik Analisis MSY")
+    
+    successful_models = {k: v for k, v in msy_results.items() if v and v['success']}
+    
+    if not successful_models:
+        st.warning("Tidak ada model yang berhasil untuk ditampilkan grafiknya.")
+        return
+    
+    # Tab untuk berbagai jenis grafik
+    tab1, tab2, tab3 = st.tabs(["📊 Grafik Individual", "📈 Grafik Produksi", "🆚 Perbandingan Model"])
+    
+    with tab1:
+        st.subheader("Grafik Individual Setiap Model")
+        
+        # Tentukan layout berdasarkan jumlah model
+        n_models = len(successful_models)
+        if n_models == 1:
+            cols = [1]
+        elif n_models == 2:
+            cols = [1, 1]
+        else:
+            cols = [1, 1, 1]
+        
+        for i, (model_name, results) in enumerate(successful_models.items()):
+            if i % len(cols) == 0:
+                col_grafik = st.columns(len(cols))
+            
+            with col_grafik[i % len(cols)]:
+                fig, ax = plt.subplots(figsize=(6, 4))
+                
+                if model_name == 'Schaefer':
+                    buat_grafik_msy_schaefer(ax, effort_data, cpue_data, results)
+                elif model_name == 'Fox':
+                    buat_grafik_fox(ax, effort_data, production_data, results)
+                elif model_name == 'Pella-Tomlinson':
+                    buat_grafik_pella_tomlinson(ax, effort_data, production_data, results)
+                
+                st.pyplot(fig)
+                plt.close()
+    
+    with tab2:
+        st.subheader("Grafik Produksi vs Upaya")
+        
+        # Tentukan layout
+        n_models = len(successful_models)
+        if n_models == 1:
+            cols = [1]
+        elif n_models == 2:
+            cols = [1, 1]
+        else:
+            cols = [1, 1, 1]
+        
+        for i, (model_name, results) in enumerate(successful_models.items()):
+            if i % len(cols) == 0:
+                col_grafik = st.columns(len(cols))
+            
+            with col_grafik[i % len(cols)]:
+                fig, ax = plt.subplots(figsize=(6, 4))
+                
+                if model_name == 'Schaefer':
+                    buat_grafik_produksi_schaefer(ax, effort_data, production_data, results)
+                elif model_name == 'Fox':
+                    buat_grafik_fox(ax, effort_data, production_data, results)
+                elif model_name == 'Pella-Tomlinson':
+                    buat_grafik_pella_tomlinson(ax, effort_data, production_data, results)
+                
+                st.pyplot(fig)
+                plt.close()
+    
+    with tab3:
+        st.subheader("Perbandingan Semua Model")
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        buat_grafik_perbandingan_model(ax, effort_data, production_data, successful_models)
+        st.pyplot(fig)
+        plt.close()
+        
+        # Tambahkan tabel perbandingan
+        st.subheader("📋 Tabel Perbandingan Model")
+        comparison_data = []
+        for model_name, results in successful_models.items():
+            comparison_data.append({
+                'Model': model_name,
+                'C_MSY (ton)': f"{results['C_MSY']:,.1f}",
+                'F_MSY': f"{results['F_MSY']:,.1f}",
+                'U_MSY': f"{results['U_MSY']:.3f}",
+                'R²': f"{results['r_squared']:.3f}",
+                'Persamaan': results['equation']
+            })
+        
+        st.dataframe(pd.DataFrame(comparison_data), use_container_width=True)
+
+# ==============================================
+# FUNGSI UTILITAS DAN KONFIGURASI
+# ==============================================
 def get_config():
-    """Mengembalikan konfigurasi alat tangkap dan tahun"""
     return st.session_state.gear_config
 
-# Fungsi untuk menyimpan konfigurasi
 def save_config(gears, display_names, standard_gear, years, num_years):
-    """Menyimpan konfigurasi ke session state"""
     st.session_state.gear_config = {
-        'gears': gears,
-        'display_names': display_names,
-        'standard_gear': standard_gear,
-        'years': years,
-        'num_years': num_years
+        'gears': gears, 'display_names': display_names, 'standard_gear': standard_gear,
+        'years': years, 'num_years': num_years
     }
-    st.success("Konfigurasi berhasil disimpan!")
 
-# Fungsi untuk generate tahun
 def generate_years(start_year, num_years):
-    """Generate list tahun berdasarkan tahun mulai dan jumlah tahun"""
     return [start_year + i for i in range(num_years)]
 
-# Fungsi untuk reset data
 def reset_data():
-    """Reset data produksi dan upaya"""
+    # Reset ke data contoh
     st.session_state.data_tables = {
-        'production': [],
-        'effort': []
+        'production': [
+                {'Tahun': 2018, 'Jaring_Insang_Tetap': 1004, 'Jaring_Hela_Dasar': 6105, 'Bagan_Berperahu': 628, 'Pancing': 811, 'Jumlah': 8548},
+                {'Tahun': 2019, 'Jaring_Insang_Tetap': 2189, 'Jaring_Hela_Dasar': 10145, 'Bagan_Berperahu': 77, 'Pancing': 396, 'Jumlah': 12807},
+                {'Tahun': 2020, 'Jaring_Insang_Tetap': 122, 'Jaring_Hela_Dasar': 9338, 'Bagan_Berperahu': 187, 'Pancing': 311, 'Jumlah': 9958},
+                {'Tahun': 2021, 'Jaring_Insang_Tetap': 8, 'Jaring_Hela_Dasar': 10439, 'Bagan_Berperahu': 377, 'Pancing': 418, 'Jumlah': 11242},
+                {'Tahun': 2022, 'Jaring_Insang_Tetap': 23, 'Jaring_Hela_Dasar': 10880, 'Bagan_Berperahu': 189, 'Pancing': 21, 'Jumlah': 11113},
+                {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287},
+                {'Tahun': 2024, 'Jaring_Insang_Tetap': 0, 'Jaring_Hela_Dasar': 12512, 'Bagan_Berperahu': 315, 'Pancing': 85, 'Jumlah': 12912}
+            ],
+            'effort': [
+                {'Tahun': 2018, 'Jaring_Insang_Tetap': 2230, 'Jaring_Hela_Dasar': 5998, 'Bagan_Berperahu': 2434, 'Pancing': 246, 'Jumlah': 10908},
+                {'Tahun': 2019, 'Jaring_Insang_Tetap': 26878, 'Jaring_Hela_Dasar': 10731, 'Bagan_Berperahu': 1385, 'Pancing': 139, 'Jumlah': 39583},
+                {'Tahun': 2020, 'Jaring_Insang_Tetap': 10122, 'Jaring_Hela_Dasar': 7076, 'Bagan_Berperahu': 1915, 'Pancing': 191, 'Jumlah': 19304},
+                {'Tahun': 2021, 'Jaring_Insang_Tetap': 11010, 'Jaring_Hela_Dasar': 7315, 'Bagan_Berperahu': 1445, 'Pancing': 162, 'Jumlah': 19932},
+                {'Tahun': 2022, 'Jaring_Insang_Tetap': 18796, 'Jaring_Hela_Dasar': 10183, 'Bagan_Berperahu': 1151, 'Pancing': 77, 'Jumlah': 30207},
+                {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959},
+                {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
+        ]
     }
-    st.success("Data berhasil direset!")
+    st.session_state.analysis_results = None
 
-# Fungsi untuk update data berdasarkan konfigurasi baru
 def update_data_structure():
-    """Update struktur data ketika konfigurasi berubah"""
     config = get_config()
     current_production = st.session_state.data_tables.get('production', [])
     current_effort = st.session_state.data_tables.get('effort', [])
@@ -76,89 +860,305 @@ def update_data_structure():
         prod_row = {'Tahun': year}
         eff_row = {'Tahun': year}
         
-        # Jika ada data existing, gunakan data tersebut
-        if i < len(current_production):
-            existing_prod = current_production[i]
-            existing_eff = current_effort[i]
-        else:
-            existing_prod = {}
-            existing_eff = {}
-        
-        # Isi data untuk setiap alat tangkap
         for gear in config['gears']:
-            prod_row[gear] = existing_prod.get(gear, 1000 * (i+1) * (config['gears'].index(gear)+1))
-            eff_row[gear] = existing_eff.get(gear, 100 * (i+1) * (config['gears'].index(gear)+1))
+            # Cari nilai dari data current jika ada
+            prod_val = 0
+            eff_val = 0
+            
+            # Cari di data produksi current
+            for current_prod in current_production:
+                if current_prod['Tahun'] == year and gear in current_prod:
+                    prod_val = current_prod[gear]
+                    break
+            
+            # Cari di data upaya current
+            for current_eff in current_effort:
+                if current_eff['Tahun'] == year and gear in current_eff:
+                    eff_val = current_eff[gear]
+                    break
+            
+            # Jika tidak ditemukan, gunakan default
+            if prod_val == 0:
+                prod_val = 1000 * (i+1)
+            if eff_val == 0:
+                eff_val = 100 * (i+1)
+                
+            prod_row[gear] = prod_val
+            eff_row[gear] = eff_val
         
-        # Hitung total
         prod_row['Jumlah'] = sum([prod_row[gear] for gear in config['gears']])
         eff_row['Jumlah'] = sum([eff_row[gear] for gear in config['gears']])
         
         new_production.append(prod_row)
         new_effort.append(eff_row)
     
-    st.session_state.data_tables = {
-        'production': new_production,
-        'effort': new_effort
-    }
+    st.session_state.data_tables = {'production': new_production, 'effort': new_effort}
 
 # ==============================================
-# FUNGSI UTAMA YANG DIPERBAIKI
+# FUNGSI SIDEBAR - DENGAN UPLOAD
 # ==============================================
+def render_sidebar():
+    """Render sidebar dengan fitur upload"""
+    st.sidebar.header("⚙ Konfigurasi Analisis")
+    
+    # Pilihan Model MSY
+    st.sidebar.subheader("🔧 Pilih Model MSY")
+    col1, col2, col3 = st.sidebar.columns(3)
+    with col1:
+        schaefer = st.checkbox("Schaefer", value=True, key="schaefer_model")
+    with col2:
+        fox = st.checkbox("Fox", value=True, key="fox_model")
+    with col3:
+        pella = st.checkbox("Pella-Tomlinson", value=True, key="pella_model")
+    
+    # Simpan pilihan model
+    selected_models = []
+    if schaefer:
+        selected_models.append('Schaefer')
+    if fox:
+        selected_models.append('Fox')
+    if pella:
+        selected_models.append('Pella-Tomlinson')
+    
+    st.session_state.selected_models = selected_models
+    
+    # Konfigurasi Tahun
+    st.sidebar.subheader("📅 Konfigurasi Tahun")
+    start_year = st.sidebar.number_input("Tahun Mulai", min_value=2000, max_value=2030, value=2018)
+    num_years = st.sidebar.number_input("Jumlah Tahun", min_value=2, max_value=20, value=6)
+    
+    # Konfigurasi Alat Tangkap
+    st.sidebar.subheader("🎣 Konfigurasi Alat Tangkap")
+    num_gears = st.sidebar.number_input("Jumlah Alat Tangkap", min_value=2, max_value=8, value=4)
+    
+    # Input nama alat tangkap
+    gear_names = []
+    display_names = []
+    
+    config = get_config()
+    
+    for i in range(num_gears):
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            if i < len(config['gears']):
+                default_internal = config['gears'][i]
+                default_display = config['display_names'][i]
+            else:
+                default_internal = f"Alat_{i+1}"
+                default_display = f"Alat {i+1}"
+                
+            internal_name = st.text_input(f"Kode {i+1}", value=default_internal, key=f"internal_{i}")
+        with col2:
+            display_name = st.text_input(f"Nama {i+1}", value=default_display, key=f"display_{i}")
+        
+        gear_names.append(internal_name)
+        display_names.append(display_name)
+    
+    standard_gear = st.sidebar.selectbox("Alat Standar (FPI)", gear_names, index=min(1, len(gear_names)-1))
+    
+    # Simpan konfigurasi
+    if st.sidebar.button("💾 Simpan Konfigurasi", use_container_width=True, key="save_config"):
+        years = generate_years(start_year, num_years)
+        save_config(gear_names, display_names, standard_gear, years, num_years)
+        update_data_structure()
+        st.sidebar.success("Konfigurasi berhasil disimpan!")
+        st.rerun()
+    
+    # Reset data
+    if st.sidebar.button("🔄 Reset ke Data Contoh", use_container_width=True, key="reset_data"):
+        reset_data()
+        st.sidebar.success("Data berhasil direset!")
+        st.rerun()
+    
+    # Informasi Upload
+    st.sidebar.markdown("---")
+    st.sidebar.info("""
+    **📝 Panduan Upload:**
+    - **Excel**: Sheet 1 = Produksi, Sheet 2 = Upaya
+    - **CSV**: File tunggal dengan data produksi
+    - **Kolom**: Tahun, [alat_tangkap1], [alat_tangkap2], ...
+    - **Template**: Download template untuk format yang benar
+    """)
 
+# ==============================================
+# FUNGSI INPUT DATA MANUAL DAN UPLOAD
+# ==============================================
+def render_manual_input():
+    """Render input data manual"""
+    config = get_config()
+    gears = config['gears']
+    display_names = config['display_names']
+    years = config['years']
+    
+    st.header("📊 Input Data Perikanan Manual")
+    
+    # Tampilkan data current
+    current_data = st.session_state.data_tables['production']
+    if current_data:
+        st.info(f"**Data terkini:** {len(current_data)} tahun ({years[0]} - {years[-1]}), {len(gears)} alat tangkap")
+    
+    # Input Data Produksi
+    st.subheader("🍤 Data Produksi (Ton)")
+    
+    headers = ["Tahun"] + display_names + ["Jumlah"]
+    prod_cols = st.columns(len(headers))
+    
+    for i, header in enumerate(headers):
+        with prod_cols[i]:
+            st.markdown(f"**{header}**")
+    
+    production_inputs = []
+    for i, year in enumerate(years):
+        cols = st.columns(len(headers))
+        row_data = {'Tahun': year}
+        
+        with cols[0]:
+            st.markdown(f"**{year}**")
+        
+        total_prod = 0
+        for j, gear in enumerate(gears):
+            with cols[j+1]:
+                # Cari nilai default dari data current
+                default_val = 0
+                for prod_data in st.session_state.data_tables['production']:
+                    if prod_data['Tahun'] == year and gear in prod_data:
+                        default_val = prod_data[gear]
+                        break
+                
+                if default_val == 0:
+                    default_val = 1000 * (i+1)
+                    
+                prod_value = st.number_input(
+                    f"prod_{gear}_{year}", 
+                    min_value=0.0,
+                    value=float(default_val),
+                    step=100.0,
+                    format="%.1f",
+                    label_visibility="collapsed",
+                    key=f"prod_{gear}_{year}"
+                )
+                row_data[gear] = prod_value
+                total_prod += prod_value
+        
+        with cols[-1]:
+            st.markdown(f"**{total_prod:,.1f}**")
+            row_data['Jumlah'] = total_prod
+        
+        production_inputs.append(row_data)
+    
+    # Input Data Upaya
+    st.subheader("🎣 Data Upaya (Trip)")
+    
+    effort_cols = st.columns(len(headers))
+    for i, header in enumerate(headers):
+        with effort_cols[i]:
+            st.markdown(f"**{header}**")
+    
+    effort_inputs = []
+    for i, year in enumerate(years):
+        cols = st.columns(len(headers))
+        row_data = {'Tahun': year}
+        
+        with cols[0]:
+            st.markdown(f"**{year}**")
+        
+        total_eff = 0
+        for j, gear in enumerate(gears):
+            with cols[j+1]:
+                # Cari nilai default dari data current
+                default_val = 0
+                for eff_data in st.session_state.data_tables['effort']:
+                    if eff_data['Tahun'] == year and gear in eff_data:
+                        default_val = eff_data[gear]
+                        break
+                
+                if default_val == 0:
+                    default_val = 100 * (i+1)
+                    
+                eff_value = st.number_input(
+                    f"eff_{gear}_{year}", 
+                    min_value=0,
+                    value=int(default_val),
+                    step=10,
+                    label_visibility="collapsed",
+                    key=f"eff_{gear}_{year}"
+                )
+                row_data[gear] = eff_value
+                total_eff += eff_value
+        
+        with cols[-1]:
+            st.markdown(f"**{total_eff:,}**")
+            row_data['Jumlah'] = total_eff
+        
+        effort_inputs.append(row_data)
+    
+    # Simpan data
+    st.session_state.data_tables['production'] = production_inputs
+    st.session_state.data_tables['effort'] = effort_inputs
+    
+    return production_inputs, effort_inputs
+
+def render_data_input():
+    """Render input data manual dan upload"""
+    
+    # Tab untuk pilihan input method
+    tab1, tab2 = st.tabs(["📤 Upload File", "✍️ Input Manual"])
+    
+    with tab1:
+        production_inputs, effort_inputs = render_upload_section()
+    
+    with tab2:
+        production_inputs, effort_inputs = render_manual_input()
+    
+    # Kembalikan data dari session state sebagai fallback
+    if production_inputs is None or effort_inputs is None:
+        production_inputs = st.session_state.data_tables['production']
+        effort_inputs = st.session_state.data_tables['effort']
+    
+    return production_inputs, effort_inputs
+
+# ==============================================
+# FUNGSI PERHITUNGAN CPUE, FPI, dll.
+# ==============================================
 def hitung_cpue(produksi_df, upaya_df, gears):
     """Hitung CPUE untuk setiap alat tangkap"""
     cpue_data = []
     years = produksi_df['Tahun'].values
     
     for year in years:
-        year_data = {'Tahun': year}
-        
-        # CPUE untuk setiap alat tangkap
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
         for gear in gears:
             prod = produksi_df[produksi_df['Tahun'] == year][gear].values[0]
             eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
-            
-            if eff > 0:
-                cpue = prod / eff
-            else:
-                cpue = 0
-                
+            cpue = prod / eff if eff > 0 else 0
             year_data[gear] = cpue
         
-        # CPUE total
-        total_cpue = sum([year_data[gear] for gear in gears])
-        year_data['Jumlah'] = total_cpue
-        
+        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
         cpue_data.append(year_data)
     
     return pd.DataFrame(cpue_data)
 
 def hitung_fpi_per_tahun(cpue_df, gears, standard_gear):
-    """Hitung FPI per tahun"""
+    """Hitung FPI per tahun - FPI diambil dari nilai CPUE tertinggi = 1"""
     fpi_data = []
     years = cpue_df['Tahun'].values
     
     for year in years:
-        year_data = {'Tahun': year}
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
         
-        # Ambil CPUE standar
-        cpue_standard = cpue_df[cpue_df['Tahun'] == year][standard_gear].values[0]
+        # Cari nilai CPUE maksimum untuk tahun ini
+        cpue_values = [cpue_df[cpue_df['Tahun'] == year][gear].values[0] for gear in gears]
+        max_cpue = max(cpue_values) if cpue_values else 1
         
-        # Hitung FPI: CPUE alat / CPUE standar
         for gear in gears:
             cpue_gear = cpue_df[cpue_df['Tahun'] == year][gear].values[0]
-            
-            if cpue_standard > 0:
-                fpi = cpue_gear / cpue_standard
-            else:
-                fpi = 0
-            
+            # FPI = CPUE gear / CPUE maksimum (sehingga nilai tertinggi = 1)
+            fpi = cpue_gear / max_cpue if max_cpue > 0 else 0
             year_data[gear] = fpi
         
-        # Total FPI
-        total_fpi = sum([year_data[gear] for gear in gears])
-        year_data['Jumlah'] = total_fpi
-        
+        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
         fpi_data.append(year_data)
     
     return pd.DataFrame(fpi_data)
@@ -169,22 +1169,18 @@ def hitung_upaya_standar(upaya_df, fpi_df, gears):
     years = upaya_df['Tahun'].values
     
     for year in years:
-        year_data = {'Tahun': year}
-        
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
         total_standard_effort = 0
         
-        # Upaya standar untuk setiap alat tangkap
         for gear in gears:
             eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
             fpi = fpi_df[fpi_df['Tahun'] == year][gear].values[0]
-            
             standard_effort = eff * fpi
             year_data[gear] = standard_effort
             total_standard_effort += standard_effort
         
-        # Total upaya standar
         year_data['Jumlah'] = total_standard_effort
-        
         standard_effort_data.append(year_data)
     
     return pd.DataFrame(standard_effort_data)
@@ -195,17 +1191,12 @@ def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
     years = produksi_df['Tahun'].values
     
     for year in years:
-        year_data = {'Tahun': year}
-        
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
         total_production = produksi_df[produksi_df['Tahun'] == year]['Jumlah'].values[0]
         total_standard_effort = standard_effort_df[standard_effort_df['Tahun'] == year]['Jumlah'].values[0]
         
-        # CPUE Standar Total: Total Produksi / Total Upaya Standar
-        if total_standard_effort > 0:
-            cpue_standar_total = total_production / total_standard_effort
-        else:
-            cpue_standar_total = 0
-        
+        cpue_standar_total = total_production / total_standard_effort if total_standard_effort > 0 else 0
         year_data['CPUE_Standar_Total'] = cpue_standar_total
         year_data['Ln_CPUE'] = np.log(cpue_standar_total) if cpue_standar_total > 0 else 0
         
@@ -213,618 +1204,260 @@ def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
     
     return pd.DataFrame(standard_cpue_data)
 
-def analisis_msy_schaefer(standard_effort_total, cpue_standard_total):
-    """Analisis MSY menggunakan Model Schaefer"""
-    if len(standard_effort_total) < 2:
-        return None
-    
-    # Regresi linear: CPUE = a + b * Effort
-    slope, intercept, r_value, p_value, std_err = stats.linregress(standard_effort_total, cpue_standard_total)
-    
-    a = intercept
-    b = slope
-    
-    # Validasi model
-    if b >= 0:
-        return {
-            'success': False,
-            'error': 'Slope (b) harus negatif untuk model Schaefer yang valid'
-        }
-    
-    # Hitung MSY dan F_MSY
-    if b != 0:
-        F_MSY = -a / (2 * b)
-        C_MSY = -(a ** 2) / (4 * b)
-    else:
-        F_MSY = 0
-        C_MSY = 0
-    
-    return {
-        'a': a,
-        'b': b,
-        'r_squared': r_value ** 2,
-        'p_value': p_value,
-        'std_err': std_err,
-        'F_MSY': F_MSY,
-        'C_MSY': C_MSY,
-        'success': True
-    }
-
-def buat_grafik_lengkap(results, effort_values, cpue_values, production_values, years, 
-                       df_cpue, df_fpi, df_standard_effort, gears, display_names, standard_gear):
-    """Buat grafik analisis yang lengkap"""
-    
-    fig = plt.figure(figsize=(20, 12))
-    
-    # 1. Trend Produksi dan Upaya
-    ax1 = plt.subplot(2, 3, 1)
-    ax1.bar(years, production_values, color='skyblue', alpha=0.7, label='Produksi')
-    ax1.set_xlabel('Tahun')
-    ax1.set_ylabel('Produksi (Kg)', color='blue')
-    ax1.tick_params(axis='y', labelcolor='blue')
-    ax1.set_title('A. Trend Produksi per Tahun')
-    
-    ax1_twin = ax1.twinx()
-    ax1_twin.plot(years, effort_values, 'ro-', linewidth=2, markersize=6, label='Upaya Standar')
-    ax1_twin.set_ylabel('Upaya Standar', color='red')
-    ax1_twin.tick_params(axis='y', labelcolor='red')
-    
-    ax1.legend(loc='upper left')
-    ax1_twin.legend(loc='upper right')
-    ax1.grid(True, alpha=0.3)
-    
-    # 2. Hubungan Upaya vs CPUE
-    ax2 = plt.subplot(2, 3, 2)
-    ax2.scatter(effort_values, cpue_values, color='blue', s=80, label='Data Aktual', zorder=5)
-    
-    # Plot garis regresi
-    effort_range = np.linspace(min(effort_values), max(effort_values) * 1.2, 100)
-    cpue_pred = results['a'] + results['b'] * effort_range
-    ax2.plot(effort_range, cpue_pred, 'red', linewidth=2, 
-            label=f'Regresi: CPUE = {results["a"]:,.1f} + {results["b"]:,.1f}E')
-    
-    ax2.axvline(results['F_MSY'], color='green', linestyle='--', 
-               label=f'F_MSY = {results["F_MSY"]:.9f}')
-    
-    ax2.set_xlabel('Upaya Standar Total')
-    ax2.set_ylabel('CPUE Standar Total')
-    ax2.set_title('B. Hubungan Upaya vs CPUE (Model Schaefer)')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    # 3. Kurva Produksi MSY
-    ax3 = plt.subplot(2, 3, 3)
-    effort_range_prod = np.linspace(0, max(effort_values) * 1.5, 100)
-    catch_pred = results['a'] * effort_range_prod + results['b'] * (effort_range_prod ** 2)
-    
-    ax3.plot(effort_range_prod, catch_pred, 'purple', linewidth=3, label='Kurva Produksi Schaefer')
-    ax3.axvline(results['F_MSY'], color='green', linestyle='--', linewidth=2, label=f'F_MSY')
-    ax3.axhline(results['C_MSY'], color='orange', linestyle='--', linewidth=2, 
-               label=f'MSY = {results["C_MSY"]:,.0f} kg')
-    
-    # Plot data aktual
-    ax3.scatter(effort_values, production_values, 
-               color='blue', s=100, label='Data Aktual', zorder=5)
-    
-    # Annotate data points
-    for i, (x, y) in enumerate(zip(effort_values, production_values)):
-        ax3.annotate(f'{years[i]}', (x, y), 
-                    xytext=(5, 5), textcoords='offset points', fontsize=8)
-    
-    ax3.set_xlabel('Upaya Standar Total')
-    ax3.set_ylabel('Hasil Tangkapan (Kg)')
-    ax3.set_title('C. Kurva Produksi Maximum Sustainable Yield')
-    ax3.legend()
-    ax3.grid(True, alpha=0.3)
-    
-    # 4. Trend CPUE per Alat Tangkap
-    ax4 = plt.subplot(2, 3, 4)
-    colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
-    
-    for i, gear in enumerate(gears):
-        if i < len(colors):
-            ax4.plot(years, df_cpue[gear].values, 'o-', color=colors[i],
-                    label=display_names[i], linewidth=2, markersize=4)
-    
-    ax4.set_xlabel('Tahun')
-    ax4.set_ylabel('CPUE')
-    ax4.set_title('D. Trend CPUE per Alat Tangkap')
-    ax4.legend()
-    ax4.grid(True, alpha=0.3)
-    
-    # 5. Trend FPI per Alat Tangkap
-    ax5 = plt.subplot(2, 3, 5)
-    
-    # Tampilkan semua alat kecuali standar
-    fpi_gears = [gear for gear in gears if gear != standard_gear]
-    fpi_display_names = [display_names[i] for i, gear in enumerate(gears) if gear != standard_gear]
-    
-    for i, gear in enumerate(fpi_gears):
-        if i < len(colors):
-            ax5.plot(years, df_fpi[gear].values, 's-', color=colors[i],
-                    label=fpi_display_names[i], linewidth=2, markersize=4)
-    
-    ax5.set_xlabel('Tahun')
-    ax5.set_ylabel('FPI')
-    ax5.set_title('E. Trend FPI per Alat Tangkap')
-    ax5.legend()
-    ax5.grid(True, alpha=0.3)
-    
-    # 6. Komposisi Upaya Standar
-    ax6 = plt.subplot(2, 3, 6)
-    
-    # Hitung rata-rata upaya standar per alat
-    avg_effort = []
-    for gear in gears:
-        avg_effort.append(df_standard_effort[gear].mean())
-    
-    colors_pie = ['lightcoral', 'lightblue', 'lightgreen', 'gold', 'lightpink', 'lightsalmon', 'lightcyan']
-    wedges, texts, autotexts = ax6.pie(avg_effort, labels=display_names, colors=colors_pie[:len(gears)], 
-                                      autopct='%1.1f%%', startangle=90)
-    ax6.set_title('F. Komposisi Rata-rata Upaya Standar')
-    
-    plt.tight_layout()
-    return fig
-
-def hitung_analisis_statistik(df_production, df_effort, df_standard_effort, df_standard_cpue, gears):
-    """Hitung berbagai analisis statistik"""
-    
-    # Statistik produksi
-    stat_produksi = df_production[gears + ['Jumlah']].describe()
-    
-    # Statistik upaya
-    stat_upaya = df_effort[gears + ['Jumlah']].describe()
-    
-    # Trend produksi
-    years = np.arange(len(df_production))
-    trend_produksi, _, _, _, _ = stats.linregress(years, df_production['Jumlah'].values)
-    
-    # Trend upaya standar
-    trend_upaya, _, _, _, _ = stats.linregress(years, df_standard_effort['Jumlah'].values)
-    
-    # Trend CPUE standar
-    trend_cpue, _, _, _, _ = stats.linregress(years, df_standard_cpue['CPUE_Standar_Total'].values)
-    
-    return {
-        'stat_produksi': stat_produksi,
-        'stat_upaya': stat_upaya,
-        'trend_produksi': trend_produksi,
-        'trend_upaya': trend_upaya,
-        'trend_cpue': trend_cpue
-    }
-
 # ==============================================
-# SIDEBAR - KONFIGURASI
+# FUNGSI ANALISIS TINGKAT PEMANFAATAN
 # ==============================================
-st.sidebar.header("⚙️ Konfigurasi")
-
-# Konfigurasi Tahun
-st.sidebar.subheader("📅 Konfigurasi Tahun")
-start_year = st.sidebar.number_input("Tahun Mulai", min_value=2000, max_value=2030, value=2020, key="start_year")
-num_years = st.sidebar.number_input("Jumlah Tahun", min_value=2, max_value=20, value=5, key="num_years")
-
-# Konfigurasi Alat Tangkap
-st.sidebar.subheader("🎣 Konfigurasi Alat Tangkap")
-num_gears = st.sidebar.number_input("Jumlah Alat Tangkap", min_value=2, max_value=8, value=4, key="num_gears")
-
-# Input nama alat tangkap
-st.sidebar.subheader("Nama Alat Tangkap")
-gear_names = []
-display_names = []
-
-config = get_config()
-
-for i in range(num_gears):
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        # Gunakan nama existing jika ada, jika tidak buat baru
-        if i < len(config['gears']):
-            default_internal = config['gears'][i]
-            default_display = config['display_names'][i]
-        else:
-            default_internal = f"Alat_{i+1}"
-            default_display = f"Alat Tangkap {i+1}"
+def analisis_tingkat_pemanfaatan(production_total, effort_total, msy_results):
+    """Analisis tingkat pemanfaatan sumber daya perikanan"""
+    analysis_data = []
+    
+    for model_name, results in msy_results.items():
+        if results and results['success']:
+            current_production = production_total[-1]  # Produksi tahun terakhir
+            current_effort = effort_total[-1]  # Upaya tahun terakhir
+            c_msy = results['C_MSY']
+            f_msy = results['F_MSY']
             
-        internal_name = st.text_input(f"Kode {i+1}", value=default_internal, key=f"internal_{i}")
-    with col2:
-        display_name = st.text_input(f"Nama Tampilan {i+1}", value=default_display, key=f"display_{i}")
-    
-    gear_names.append(internal_name)
-    display_names.append(display_name)
-
-# Pilih alat standar
-standard_gear = st.sidebar.selectbox("Pilih Alat Standar (untuk FPI)", gear_names, 
-                                    index=min(1, len(gear_names)-1))
-
-# Simpan konfigurasi
-if st.sidebar.button("💾 Simpan Konfigurasi"):
-    years = generate_years(start_year, num_years)
-    save_config(gear_names, display_names, standard_gear, years, num_years)
-    update_data_structure()
-
-# Reset data
-if st.sidebar.button("🔄 Reset Data"):
-    reset_data()
-
-# ==============================================
-# INPUT DATA MANUAL
-# ==============================================
-st.sidebar.header("📊 Input Data")
-
-# Dapatkan konfigurasi terbaru
-config = get_config()
-gears = config['gears']
-display_names = config['display_names']
-standard_gear = config['standard_gear']
-years = config['years']
-
-# Input Data Produksi
-st.header("1. Data Produksi (Kg)")
-st.info(f"**Alat Tangkap:** {', '.join(display_names)}")
-st.info(f"**Periode:** {years[0]} - {years[-1]} ({len(years)} tahun)")
-
-# Tabel Produksi
-headers = ["Tahun"] + display_names + ["Jumlah"]
-prod_cols = st.columns(len(headers))
-
-for i, header in enumerate(headers):
-    with prod_cols[i]:
-        st.markdown(f"**{header}**")
-
-production_inputs = []
-for i, year in enumerate(years):
-    cols = st.columns(len(headers))
-    
-    row_data = {'Tahun': year}
-    
-    with cols[0]:
-        st.markdown(f"**{year}**")
-    
-    total_prod = 0
-    for j, gear in enumerate(gears):
-        with cols[j+1]:
-            # Gunakan data existing jika ada, jika tidak gunakan default
-            if (st.session_state.data_tables['production'] and 
-                i < len(st.session_state.data_tables['production'])):
-                default_val = st.session_state.data_tables['production'][i].get(gear, 1000 * (i+1) * (j+1))
+            # Tingkat pemanfaatan (% dari MSY)
+            utilization_production = (current_production / c_msy) * 100 if c_msy > 0 else 0
+            utilization_effort = (current_effort / f_msy) * 100 if f_msy > 0 else 0
+            
+            # Status pemanfaatan
+            if utilization_production < 80:
+                status_production = "Underfishing"
+            elif utilization_production > 120:
+                status_production = "Overfishing"
             else:
-                default_val = 1000 * (i+1) * (j+1)
+                status_production = "Optimal"
                 
-            prod_value = st.number_input(
-                f"{display_names[j]} {year}", 
-                min_value=0.0, 
-                value=float(default_val),
-                key=f"prod_{gear}_{year}"
-            )
-            row_data[gear] = prod_value
-            total_prod += prod_value
-    
-    with cols[-1]:
-        st.markdown(f"**{total_prod:,.0f}**")
-        row_data['Jumlah'] = total_prod
-    
-    production_inputs.append(row_data)
-
-# Simpan data produksi
-st.session_state.data_tables['production'] = production_inputs
-
-# Input Data Upaya
-st.header("2. Data Upaya (Trip)")
-
-# Tabel Upaya
-effort_cols = st.columns(len(headers))
-for i, header in enumerate(headers):
-    with effort_cols[i]:
-        st.markdown(f"**{header}**")
-
-effort_inputs = []
-for i, year in enumerate(years):
-    cols = st.columns(len(headers))
-    
-    row_data = {'Tahun': year}
-    
-    with cols[0]:
-        st.markdown(f"**{year}**")
-    
-    total_eff = 0
-    for j, gear in enumerate(gears):
-        with cols[j+1]:
-            # Gunakan data existing jika ada, jika tidak gunakan default
-            if (st.session_state.data_tables['effort'] and 
-                i < len(st.session_state.data_tables['effort'])):
-                default_val = st.session_state.data_tables['effort'][i].get(gear, 100 * (i+1) * (j+1))
+            if utilization_effort < 80:
+                status_effort = "Underfishing"
+            elif utilization_effort > 120:
+                status_effort = "Overfishing"
             else:
-                default_val = 100 * (i+1) * (j+1)
-                
-            eff_value = st.number_input(
-                f"Upaya {display_names[j]} {year}", 
-                min_value=0, 
-                value=int(default_val),
-                key=f"eff_{gear}_{year}"
-            )
-            row_data[gear] = eff_value
-            total_eff += eff_value
+                status_effort = "Optimal"
+            
+            analysis_data.append({
+                'Model': model_name,
+                'Produksi_MSY': c_msy,
+                'Upaya_MSY': f_msy,
+                'Produksi_Aktual': current_production,
+                'Upaya_Aktual': current_effort,
+                'Utilisasi_Produksi': utilization_production,
+                'Utilisasi_Upaya': utilization_effort,
+                'Status_Produksi': status_production,
+                'Status_Upaya': status_effort
+            })
     
-    with cols[-1]:
-        st.markdown(f"**{total_eff:,}**")
-        row_data['Jumlah'] = total_eff
-    
-    effort_inputs.append(row_data)
-
-# Simpan data upaya
-st.session_state.data_tables['effort'] = effort_inputs
+    return pd.DataFrame(analysis_data)
 
 # ==============================================
-# EKSPOR DATA
+# PROSES ANALISIS UTAMA
 # ==============================================
-st.sidebar.header("💾 Ekspor Data")
-
-def convert_df_to_csv(df):
-    return df.to_csv(index=False).encode('utf-8')
-
-def convert_df_to_excel(df_list, sheet_names):
-    """Convert multiple dataframes to Excel"""
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for i, df in enumerate(df_list):
-            df.to_excel(writer, sheet_name=sheet_names[i], index=False)
-    return output.getvalue()
-
-# ==============================================
-# PROSES ANALISIS
-# ==============================================
-if st.button("🚀 Lakukan Analisis CPUE dan MSY", type="primary"):
-    
-    # Konversi ke DataFrame
+def proses_analisis_utama(production_inputs, effort_inputs):
+    """Proses analisis utama dengan multi-model MSY"""
     df_production = pd.DataFrame(production_inputs)
     df_effort = pd.DataFrame(effort_inputs)
+    config = get_config()
+    gears = config['gears']
+    display_names = config['display_names']
+    standard_gear = config['standard_gear']
     
-    # ==============================================
-    # 1. PERHITUNGAN CPUE
-    # ==============================================
-    st.header("📈 1. Perhitungan CPUE")
+    with st.status("🔄 Sedang menganalisis...", expanded=True) as status:
+        st.write("📈 Menghitung CPUE...")
+        df_cpue = hitung_cpue(df_production, df_effort, gears)
+        
+        st.write("🎯 Menghitung FPI...")
+        df_fpi = hitung_fpi_per_tahun(df_cpue, gears, standard_gear)
+        
+        st.write("⚖ Menghitung upaya standar...")
+        df_standard_effort = hitung_upaya_standar(df_effort, df_fpi, gears)
+        
+        st.write("📊 Menghitung CPUE standar...")
+        df_standard_cpue = hitung_cpue_standar(df_production, df_standard_effort, gears)
+        
+        st.write("🧮 Analisis MSY Multi-Model...")
+        effort_values = df_standard_effort['Jumlah'].values
+        cpue_values = df_standard_cpue['CPUE_Standar_Total'].values
+        production_values = df_production['Jumlah'].values
+        
+        results_dict = bandingkan_model_msy(effort_values, cpue_values, production_values, st.session_state.selected_models)
+        
+        st.write("🎨 Membuat visualisasi...")
+        
+        status.update(label="✅ Analisis selesai!", state="complete", expanded=False)
     
-    st.latex(r"CPUE = \frac{Produksi}{Upaya}")
+    st.session_state.analysis_results = {
+        'df_production': df_production,
+        'df_effort': df_effort,
+        'df_cpue': df_cpue,
+        'df_fpi': df_fpi,
+        'df_standard_effort': df_standard_effort,
+        'df_standard_cpue': df_standard_cpue,
+        'msy_results': results_dict
+    }
     
-    df_cpue = hitung_cpue(df_production, df_effort, gears)
+    successful_models = {k: v for k, v in results_dict.items() if v and v['success']}
     
-    # Tampilkan CPUE
-    cpue_display = df_cpue.copy()
-    cpue_display.columns = ['Tahun'] + display_names + ['Jumlah']
-    
-    st.dataframe(cpue_display.style.format({
-        **{name: '{:.4f}' for name in display_names},
-        'Jumlah': '{:.4f}'
-    }))
-    
-    # Ekspor CPUE
-    csv_cpue = convert_df_to_csv(cpue_display)
-    st.download_button(
-        label="📥 Download Data CPUE (CSV)",
-        data=csv_cpue,
-        file_name="data_cpue.csv",
-        mime="text/csv",
-        key="download_cpue"
-    )
-    
-    # ==============================================
-    # 2. PERHITUNGAN FPI
-    # ==============================================
-    st.header("🎯 2. Perhitungan FPI (Fishing Power Index)")
-    
-    st.latex(r"FPI = \frac{CPUE\,alat\,tangkap}{CPUE\,alat\,standar}")
-    st.info(f"**Alat Standar:** {display_names[gears.index(standard_gear)]} (FPI = 1)")
-    st.info("**Metodologi:** FPI dihitung per tahun berdasarkan CPUE aktual setiap tahun")
-    
-    df_fpi = hitung_fpi_per_tahun(df_cpue, gears, standard_gear)
-    
-    # Tampilkan FPI
-    fpi_display = df_fpi.copy()
-    fpi_display.columns = ['Tahun'] + display_names + ['Jumlah']
-    
-    st.dataframe(fpi_display.style.format({
-        **{name: '{:.9f}' for name in display_names},
-        'Jumlah': '{:.9f}'
-    }))
-    
-    # Ekspor FPI
-    csv_fpi = convert_df_to_csv(fpi_display)
-    st.download_button(
-        label="📥 Download Data FPI (CSV)",
-        data=csv_fpi,
-        file_name="data_fpi.csv",
-        mime="text/csv",
-        key="download_fpi"
-    )
-    
-    # ==============================================
-    # 3. PERHITUNGAN UPAYA STANDAR
-    # ==============================================
-    st.header("⚖️ 3. Perhitungan Upaya Standar")
-    
-    st.latex(r"Upaya_{standar} = Upaya \times FPI")
-    
-    df_standard_effort = hitung_upaya_standar(df_effort, df_fpi, gears)
-    
-    # Tampilkan Upaya Standar
-    standard_effort_display = df_standard_effort.copy()
-    standard_effort_display.columns = ['Tahun'] + display_names + ['Jumlah']
-    
-    st.dataframe(standard_effort_display.style.format({
-        **{name: '{:.10f}' for name in display_names},
-        'Jumlah': '{:.9f}'
-    }))
-    
-    # Ekspor Upaya Standar
-    csv_standard_effort = convert_df_to_csv(standard_effort_display)
-    st.download_button(
-        label="📥 Download Data Upaya Standar (CSV)",
-        data=csv_standard_effort,
-        file_name="data_upaya_standar.csv",
-        mime="text/csv",
-        key="download_standard_effort"
-    )
-    
-    # ==============================================
-    # 4. PERHITUNGAN CPUE STANDAR
-    # ==============================================
-    st.header("📊 4. Perhitungan CPUE Standar")
-    
-    st.latex(r"CPUE_{standar} = \frac{Total\,Produksi}{Total\,Upaya\,Standar}")
-    
-    df_standard_cpue = hitung_cpue_standar(df_production, df_standard_effort, gears)
-    
-    # Tampilkan CPUE Standar
-    standard_cpue_display = df_standard_cpue.copy()
-    standard_cpue_display.columns = ['Tahun', 'CPUE Standar Total', 'Ln CPUE']
-    
-    st.dataframe(standard_cpue_display.style.format({
-        'CPUE Standar Total': '{:.1f}',
-        'Ln CPUE': '{:.8f}'
-    }))
-    
-    # Ekspor CPUE Standar
-    csv_standard_cpue = convert_df_to_csv(standard_cpue_display)
-    st.download_button(
-        label="📥 Download Data CPUE Standar (CSV)",
-        data=csv_standard_cpue,
-        file_name="data_cpue_standar.csv",
-        mime="text/csv",
-        key="download_standard_cpue"
-    )
-    
-    # ==============================================
-    # 5. ANALISIS MSY - MODEL SCHAEFER
-    # ==============================================
-    st.header("🧮 5. Analisis MSY - Model Schaefer")
-    
-    # Data untuk regresi
-    effort_values = df_standard_effort['Jumlah'].values
-    cpue_values = df_standard_cpue['CPUE_Standar_Total'].values
-    production_values = df_production['Jumlah'].values
-    
-    results = analisis_msy_schaefer(effort_values, cpue_values)
-    
-    if results and results['success']:
-        # Tampilkan parameter
-        st.subheader("Hasil Regresi Linear")
+    if successful_models:
+        st.success(f"Analisis berhasil! {len(successful_models)} model valid.")
+        
+        best_model_name = max(successful_models.items(), key=lambda x: x[1]['r_squared'])[0]
+        best_model = successful_models[best_model_name]
+        
+        st.markdown("---")
+        st.header("📊 Hasil Analisis CPUE dan MSY")
+        st.info(f"**Model terbaik**: {best_model_name} (R² = {best_model['r_squared']:.3f})")
+        
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Intercept (a)", f"{results['a']:,.1f}")
-        col2.metric("Slope (b)", f"{results['b']:,.1f}")
-        col3.metric("R²", f"{results['r_squared']:.6f}")
-        col4.metric("p-value", f"{results['p_value']:.6f}")
-        
-        # Tampilkan MSY
-        st.subheader("Estimasi Maximum Sustainable Yield (MSY)")
-        
-        st.latex(r"C_{MSY} = -\frac{a^2}{4b}")
-        st.latex(r"F_{MSY} = -\frac{a}{2b}")
-        
-        col1, col2 = st.columns(2)
-        col1.metric("F_MSY (Upaya Optimal)", f"{results['F_MSY']:.9f}")
-        col2.metric("C_MSY (MSY)", f"{results['C_MSY']:,.2f} kg")
-        
-        # Validasi hasil
-        if results['C_MSY'] < 0:
-            st.error("⚠️ **Peringatan**: Nilai MSY negatif. Model mungkin tidak sesuai dengan data.")
-        elif results['r_squared'] < 0.3:
-            st.warning("⚠️ **Peringatan**: Nilai R² rendah. Hubungan antara upaya dan CPUE mungkin lemah.")
-        
-        # ==============================================
-        # 6. ANALISIS STATISTIK
-        # ==============================================
-        st.header("📊 6. Analisis Statistik")
-        
-        statistik = hitung_analisis_statistik(df_production, df_effort, df_standard_effort, df_standard_cpue, gears)
-        
-        col1, col2, col3 = st.columns(3)
-        
         with col1:
-            st.metric("Trend Produksi", f"{statistik['trend_produksi']:+.2f} kg/tahun",
-                     delta="Naik" if statistik['trend_produksi'] > 0 else "Turun")
-        
+            st.metric("Maximum Sustainable Yield (MSY)", f"{best_model['C_MSY']:,.1f} ton")
         with col2:
-            st.metric("Trend Upaya Standar", f"{statistik['trend_upaya']:+.6f}/tahun",
-                     delta="Naik" if statistik['trend_upaya'] > 0 else "Turun")
-        
+            st.metric("Optimum Fishing Effort (F_MSY)", f"{best_model['F_MSY']:,.1f}")
         with col3:
-            st.metric("Trend CPUE Standar", f"{statistik['trend_cpue']:+.4f}/tahun",
-                     delta="Naik" if statistik['trend_cpue'] > 0 else "Turun")
+            st.metric("CPUE Optimum (U_MSY)", f"{best_model['U_MSY']:.3f}")
+        with col4:
+            st.metric("Koefisien Determinasi (R²)", f"{best_model['r_squared']:.3f}")
         
-        # ==============================================
-        # 7. VISUALISASI GRAFIK LENGKAP
-        # ==============================================
-        st.header("📈 7. Visualisasi Hasil Analisis")
+        # Tampilkan tabel-tabel hasil
+        st.header("📋 Hasil Perhitungan")
         
-        fig = buat_grafik_lengkap(results, effort_values, cpue_values, production_values, years,
-                                 df_cpue, df_fpi, df_standard_effort, gears, display_names, standard_gear)
-        st.pyplot(fig)
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🍤 Produksi", "🎣 Upaya", "📊 CPUE", "🎯 FPI", "⚖ Upaya Standar"])
         
-        # ==============================================
-        # 8. INTERPRETASI DAN REKOMENDASI
-        # ==============================================
-        st.header("🎯 8. Interpretasi dan Rekomendasi")
+        with tab1:
+            st.dataframe(df_production.style.format({col: "{:,.1f}" for col in df_production.columns if col != 'Tahun'}), use_container_width=True)
         
-        # Analisis tingkat pemanfaatan
-        latest_effort = effort_values[-1]
-        latest_production = production_values[-1]
+        with tab2:
+            st.dataframe(df_effort.style.format({col: "{:,}" for col in df_effort.columns if col != 'Tahun'}), use_container_width=True)
         
-        utilization_effort = (latest_effort / results['F_MSY']) * 100 if results['F_MSY'] > 0 else 0
-        utilization_production = (latest_production / results['C_MSY']) * 100 if results['C_MSY'] > 0 else 0
+        with tab3:
+            st.dataframe(df_cpue.style.format({col: "{:.3f}" for col in df_cpue.columns if col != 'Tahun'}), use_container_width=True)
         
-        col1, col2 = st.columns(2)
+        with tab4:
+            st.dataframe(df_fpi.style.format({col: "{:.3f}" for col in df_fpi.columns if col != 'Tahun'}), use_container_width=True)
         
-        with col1:
-            if utilization_effort < 80:
-                status = "🟢 UNDER EXPLOITED"
-                rekomendasi = "**Rekomendasi**: Tingkatkan upaya penangkapan secara bertahap"
-            elif utilization_effort <= 100:
-                status = "🟡 FULLY EXPLOITED"
-                rekomendasi = "**Rekomendasi**: Pertahankan upaya saat ini dengan monitoring ketat"
-            else:
-                status = "🔴 OVER EXPLOITED"
-                rekomendasi = "**Rekomendasi**: Kurangi upaya penangkapan untuk keberlanjutan"
-            
-            st.metric("Status Pemanfaatan Upaya", status, f"{utilization_effort:.1f}%")
-            st.info(rekomendasi)
+        with tab5:
+            st.dataframe(df_standard_effort.style.format({col: "{:,.1f}" for col in df_standard_effort.columns if col != 'Tahun'}), use_container_width=True)
         
-        with col2:
-            st.metric(
-                "Produksi vs MSY", 
-                f"{latest_production:,.0f} kg",
-                f"{utilization_production:.1f}% dari MSY"
-            )
+        # Visualisasi
+        st.header("📈 Visualisasi Hasil")
         
-        # ==============================================
-        # 9. EKSPOR SEMUA HASIL
-        # ==============================================
-        st.header("💾 9. Ekspor Semua Hasil Analisis")
+        # Panggil fungsi grafik MSY yang baru
+        render_grafik_msy_lengkap(effort_values, cpue_values, production_values, results_dict)
         
-        # Buat Excel file dengan semua sheet
-        excel_data = convert_df_to_excel(
-            [df_production, df_effort, cpue_display, fpi_display, standard_effort_display, standard_cpue_display],
-            ['Data Produksi', 'Data Upaya', 'CPUE', 'FPI', 'Upaya Standar', 'CPUE Standar']
-        )
-        
-        st.download_button(
-            label="📥 Download Semua Hasil (Excel)",
-            data=excel_data,
-            file_name="hasil_analisis_cpue_msy.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_all"
-        )
+        # Visualisasi sederhana lainnya
+        buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_standard_effort, df_standard_cpue, results_dict, gears, display_names)
         
     else:
-        if results and 'error' in results:
-            st.error(f"❌ **Error dalam analisis MSY**: {results['error']}")
+        st.error("Analisis MSY gagal pada semua model. Periksa data input.")
+        
+        for model_name, results in results_dict.items():
+            if results and 'error' in results:
+                st.error(f"{model_name}: {results['error']}")
+
+def buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_standard_effort, df_standard_cpue, results_dict, gears, display_names):
+    """Buat visualisasi sederhana untuk hasil analisis"""
+    
+    # Tab untuk visualisasi tambahan
+    tab1, tab2 = st.tabs(["📈 Trend Produksi & Upaya", "🎯 CPUE & FPI"])
+    
+    with tab1:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Plot produksi
+        ax1.plot(df_production['Tahun'], df_production['Jumlah'], 'o-', linewidth=2, markersize=8, color='blue')
+        ax1.set_title('Total Produksi per Tahun')
+        ax1.set_xlabel('Tahun')
+        ax1.set_ylabel('Produksi (Ton)')
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot upaya
+        ax2.plot(df_effort['Tahun'], df_effort['Jumlah'], 's-', linewidth=2, markersize=8, color='red')
+        ax2.set_title('Total Upaya per Tahun')
+        ax2.set_xlabel('Tahun')
+        ax2.set_ylabel('Upaya (Trip)')
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+    
+    with tab2:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Plot CPUE
+        for i, gear in enumerate(gears):
+            ax1.plot(df_cpue['Tahun'], df_cpue[gear], 'o-', label=display_names[i], markersize=4)
+        ax1.set_title('CPUE per Alat Tangkap')
+        ax1.set_xlabel('Tahun')
+        ax1.set_ylabel('CPUE (Ton/Trip)')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot FPI
+        for i, gear in enumerate(gears):
+            ax2.plot(df_fpi['Tahun'], df_fpi[gear], 's-', label=display_names[i], markersize=4)
+        ax2.set_title('FPI per Alat Tangkap')
+        ax2.set_xlabel('Tahun')
+        ax2.set_ylabel('FPI')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+
+# ==============================================
+# APLIKASI UTAMA
+# ==============================================
+def main():
+    """Aplikasi utama dengan multi-model MSY dan fitur upload"""
+    initialize_session_state()
+    
+    # Render sidebar
+    render_sidebar()
+    
+    # Render input data (manual dan upload)
+    production_inputs, effort_inputs = render_data_input()
+    
+    # Tombol analisis
+    if st.button("🚀 Lakukan Analisis CPUE dan MSY", type="primary", use_container_width=True, key="analyze_button"):
+        if st.session_state.data_tables['production'] and st.session_state.data_tables['effort']:
+            if not st.session_state.selected_models:
+                st.error("Pilih minimal satu model MSY untuk dianalisis.")
+            else:
+                proses_analisis_utama(production_inputs, effort_inputs)
         else:
-            st.error("Tidak dapat melakukan analisis MSY. Data tidak mencukupi.")
+            st.error("Silakan isi data terlebih dahulu.")
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    **📚 Model MSY yang Tersedia:**
+    - **Schaefer**: Model linear sederhana - CPUE vs Upaya
+    - **Fox**: Model eksponensial - Produksi vs Upaya  
+    - **Pella-Tomlinson**: Model generalisasi dengan parameter bentuk
+    
+    **📈 Grafik MSY yang Dihasilkan:**
+    - Grafik individual setiap model
+    - Grafik produksi vs upaya
+    - Perbandingan semua model dalam satu grafik
+    - Titik MSY dan kurva produksi
+    
+    **🔍 Analisis yang Dilakukan:**
+    - Perhitungan CPUE (Catch Per Unit Effort)
+    - Standardisasi upaya penangkapan dengan FPI
+    - Estimasi MSY dengan multi-model
+    - Analisis tingkat pemanfaatan sumber daya
+    
+    **📤 Fitur Upload:**
+    - Support file Excel (.xlsx, .xls) dan CSV (.csv)
+    - **Template Excel** tersedia untuk diunduh
+    - **Excel**: Sheet 1 = Produksi, Sheet 2 = Upaya
+    - Konversi otomatis ke format aplikasi
+    
+    *Aplikasi akan membandingkan semua model yang dipilih dan merekomendasikan yang terbaik.*
+    
+    Dikembangkan untuk Analisis Perikanan Berkelanjutan | © 2025
+    """)
 
-# ==============================================
-# FOOTER
-# ==============================================
-st.markdown("---")
-st.markdown("""
-
-*Dikembangkan untuk Analisis Perikanan Berkelanjutan | Astriani © 2025*
-""") 
+if __name__ == "__main__":
+    main()
