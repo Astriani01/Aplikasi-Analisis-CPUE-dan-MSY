@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import io
 from scipy import stats
 from scipy.optimize import curve_fit
@@ -1461,3 +1460,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
