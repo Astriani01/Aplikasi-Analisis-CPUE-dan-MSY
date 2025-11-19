@@ -40,8 +40,7 @@ def initialize_session_state():
                 {'Tahun': 2020, 'Jaring_Insang_Tetap': 122, 'Jaring_Hela_Dasar': 9338, 'Bagan_Berperahu': 187, 'Pancing': 311, 'Jumlah': 9958},
                 {'Tahun': 2021, 'Jaring_Insang_Tetap': 8, 'Jaring_Hela_Dasar': 10439, 'Bagan_Berperahu': 377, 'Pancing': 418, 'Jumlah': 11242},
                 {'Tahun': 2022, 'Jaring_Insang_Tetap': 23, 'Jaring_Hela_Dasar': 10880, 'Bagan_Berperahu': 189, 'Pancing': 21, 'Jumlah': 11113},
-                {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287},
-                {'Tahun': 2024, 'Jaring_Insang_Tetap': 0, 'Jaring_Hela_Dasar': 12512, 'Bagan_Berperahu': 315, 'Pancing': 85, 'Jumlah': 12912}
+                {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287}
             ],
             'effort': [
                 {'Tahun': 2018, 'Jaring_Insang_Tetap': 2230, 'Jaring_Hela_Dasar': 5998, 'Bagan_Berperahu': 2434, 'Pancing': 246, 'Jumlah': 10908},
@@ -49,8 +48,7 @@ def initialize_session_state():
                 {'Tahun': 2020, 'Jaring_Insang_Tetap': 10122, 'Jaring_Hela_Dasar': 7076, 'Bagan_Berperahu': 1915, 'Pancing': 191, 'Jumlah': 19304},
                 {'Tahun': 2021, 'Jaring_Insang_Tetap': 11010, 'Jaring_Hela_Dasar': 7315, 'Bagan_Berperahu': 1445, 'Pancing': 162, 'Jumlah': 19932},
                 {'Tahun': 2022, 'Jaring_Insang_Tetap': 18796, 'Jaring_Hela_Dasar': 10183, 'Bagan_Berperahu': 1151, 'Pancing': 77, 'Jumlah': 30207},
-                {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959},
-                {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
+                {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959}
             ]
         }
     
@@ -58,7 +56,7 @@ def initialize_session_state():
         st.session_state.analysis_results = None
     
     if 'selected_models' not in st.session_state:
-        st.session_state.selected_models = ['Schaefer', 'Fox']  # Hapus Pella-Tomlinson
+        st.session_state.selected_models = ['Schaefer', 'Fox']
     
     if 'uploaded_data' not in st.session_state:
         st.session_state.uploaded_data = None
@@ -162,7 +160,7 @@ def render_template_section():
         """)
 
 # ==============================================
-# FUNGSI UPLOAD DATA YANG DIPERBAIKI
+# FUNGSI UPLOAD DATA
 # ==============================================
 def process_uploaded_file(uploaded_file):
     """Proses file yang diupload (Excel atau CSV)"""
@@ -376,7 +374,7 @@ def render_upload_section():
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write("📊 Data Produksi**")
+                            st.write("📊 Data Produksi")
                             st.dataframe(
                                 pd.DataFrame(converted_data['production']).style.format({
                                     col: "{:,.1f}" for col in converted_data['gears']
@@ -385,7 +383,7 @@ def render_upload_section():
                             )
                         
                         with col2:
-                            st.write("🎣 Data Upaya**")
+                            st.write("🎣 Data Upaya")
                             st.dataframe(
                                 pd.DataFrame(converted_data['effort']).style.format({
                                     col: "{:,}" for col in converted_data['gears']
@@ -425,7 +423,7 @@ def render_upload_section():
     return None, None
 
 # ==============================================
-# FUNGSI MODEL MSY - MULTI MODEL (TANPA PELLA-TOMLINSON)
+# FUNGSI MODEL MSY - MULTI MODEL
 # ==============================================
 def analisis_msy_schaefer(standard_effort_total, cpue_standard_total):
     """Analisis MSY menggunakan Model Schaefer (Linear)"""
@@ -504,12 +502,10 @@ def bandingkan_model_msy(standard_effort_total, cpue_standard_total, production_
     if 'Fox' in selected_models:
         results['Fox'] = analisis_msy_fox(standard_effort_total, production_total)
     
-    # Hapus Pella-Tomlinson dari sini
-    
     return results
 
 # ==============================================
-# FUNGSI GRAFIK MSY YANG DITAMBAHKAN (TANPA PELLA-TOMLINSON)
+# FUNGSI GRAFIK MSY
 # ==============================================
 def buat_grafik_msy_schaefer(ax, effort_data, cpue_data, model_results):
     """Buat grafik MSY untuk model Schaefer"""
@@ -604,8 +600,8 @@ def buat_grafik_fox(ax, effort_data, production_data, model_results):
 
 def buat_grafik_perbandingan_model(ax, effort_data, production_data, all_results):
     """Buat grafik perbandingan semua model"""
-    colors = ['red', 'blue', 'orange']  # Kurangi warna karena hanya 2 model
-    line_styles = ['-', '--', '-.']
+    colors = ['red', 'blue']  # Hanya 2 warna untuk 2 model
+    line_styles = ['-', '--']
     
     # Data observasi
     ax.scatter(effort_data, production_data, color='black', s=80, zorder=5, label='Data Observasi')
@@ -654,7 +650,7 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
         
         # Tentukan layout berdasarkan jumlah model
         n_models = len(successful_models)
-        cols = st.columns(n_models)  # Sesuaikan dengan jumlah model yang ada
+        cols = st.columns(n_models)
         
         for i, (model_name, results) in enumerate(successful_models.items()):
             with cols[i]:
@@ -729,22 +725,20 @@ def reset_data():
     # Reset ke data contoh
     st.session_state.data_tables = {
         'production': [
-                {'Tahun': 2018, 'Jaring_Insang_Tetap': 1004, 'Jaring_Hela_Dasar': 6105, 'Bagan_Berperahu': 628, 'Pancing': 811, 'Jumlah': 8548},
-                {'Tahun': 2019, 'Jaring_Insang_Tetap': 2189, 'Jaring_Hela_Dasar': 10145, 'Bagan_Berperahu': 77, 'Pancing': 396, 'Jumlah': 12807},
-                {'Tahun': 2020, 'Jaring_Insang_Tetap': 122, 'Jaring_Hela_Dasar': 9338, 'Bagan_Berperahu': 187, 'Pancing': 311, 'Jumlah': 9958},
-                {'Tahun': 2021, 'Jaring_Insang_Tetap': 8, 'Jaring_Hela_Dasar': 10439, 'Bagan_Berperahu': 377, 'Pancing': 418, 'Jumlah': 11242},
-                {'Tahun': 2022, 'Jaring_Insang_Tetap': 23, 'Jaring_Hela_Dasar': 10880, 'Bagan_Berperahu': 189, 'Pancing': 21, 'Jumlah': 11113},
-                {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287},
-                {'Tahun': 2024, 'Jaring_Insang_Tetap': 0, 'Jaring_Hela_Dasar': 12512, 'Bagan_Berperahu': 315, 'Pancing': 85, 'Jumlah': 12912}
-            ],
-            'effort': [
-                {'Tahun': 2018, 'Jaring_Insang_Tetap': 2230, 'Jaring_Hela_Dasar': 5998, 'Bagan_Berperahu': 2434, 'Pancing': 246, 'Jumlah': 10908},
-                {'Tahun': 2019, 'Jaring_Insang_Tetap': 26878, 'Jaring_Hela_Dasar': 10731, 'Bagan_Berperahu': 1385, 'Pancing': 139, 'Jumlah': 39583},
-                {'Tahun': 2020, 'Jaring_Insang_Tetap': 10122, 'Jaring_Hela_Dasar': 7076, 'Bagan_Berperahu': 1915, 'Pancing': 191, 'Jumlah': 19304},
-                {'Tahun': 2021, 'Jaring_Insang_Tetap': 11010, 'Jaring_Hela_Dasar': 7315, 'Bagan_Berperahu': 1445, 'Pancing': 162, 'Jumlah': 19932},
-                {'Tahun': 2022, 'Jaring_Insang_Tetap': 18796, 'Jaring_Hela_Dasar': 10183, 'Bagan_Berperahu': 1151, 'Pancing': 77, 'Jumlah': 30207},
-                {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959},
-                {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
+            {'Tahun': 2018, 'Jaring_Insang_Tetap': 1004, 'Jaring_Hela_Dasar': 6105, 'Bagan_Berperahu': 628, 'Pancing': 811, 'Jumlah': 8548},
+            {'Tahun': 2019, 'Jaring_Insang_Tetap': 2189, 'Jaring_Hela_Dasar': 10145, 'Bagan_Berperahu': 77, 'Pancing': 396, 'Jumlah': 12807},
+            {'Tahun': 2020, 'Jaring_Insang_Tetap': 122, 'Jaring_Hela_Dasar': 9338, 'Bagan_Berperahu': 187, 'Pancing': 311, 'Jumlah': 9958},
+            {'Tahun': 2021, 'Jaring_Insang_Tetap': 8, 'Jaring_Hela_Dasar': 10439, 'Bagan_Berperahu': 377, 'Pancing': 418, 'Jumlah': 11242},
+            {'Tahun': 2022, 'Jaring_Insang_Tetap': 23, 'Jaring_Hela_Dasar': 10880, 'Bagan_Berperahu': 189, 'Pancing': 21, 'Jumlah': 11113},
+            {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287}
+        ],
+        'effort': [
+            {'Tahun': 2018, 'Jaring_Insang_Tetap': 2230, 'Jaring_Hela_Dasar': 5998, 'Bagan_Berperahu': 2434, 'Pancing': 246, 'Jumlah': 10908},
+            {'Tahun': 2019, 'Jaring_Insang_Tetap': 26878, 'Jaring_Hela_Dasar': 10731, 'Bagan_Berperahu': 1385, 'Pancing': 139, 'Jumlah': 39583},
+            {'Tahun': 2020, 'Jaring_Insang_Tetap': 10122, 'Jaring_Hela_Dasar': 7076, 'Bagan_Berperahu': 1915, 'Pancing': 191, 'Jumlah': 19304},
+            {'Tahun': 2021, 'Jaring_Insang_Tetap': 11010, 'Jaring_Hela_Dasar': 7315, 'Bagan_Berperahu': 1445, 'Pancing': 162, 'Jumlah': 19932},
+            {'Tahun': 2022, 'Jaring_Insang_Tetap': 18796, 'Jaring_Hela_Dasar': 10183, 'Bagan_Berperahu': 1151, 'Pancing': 77, 'Jumlah': 30207},
+            {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959}
         ]
     }
     st.session_state.analysis_results = None
@@ -796,7 +790,7 @@ def update_data_structure():
     st.session_state.data_tables = {'production': new_production, 'effort': new_effort}
 
 # ==============================================
-# FUNGSI SIDEBAR - DENGAN UPLOAD (TANPA PELLA-TOMLINSON)
+# FUNGSI SIDEBAR
 # ==============================================
 def render_sidebar():
     """Render sidebar dengan fitur upload"""
@@ -804,12 +798,11 @@ def render_sidebar():
     
     # Pilihan Model MSY - Hanya Schaefer dan Fox
     st.sidebar.subheader("🔧 Pilih Model MSY")
-    col1, col2 = st.sidebar.columns(2)  # Hanya 2 kolom sekarang
+    col1, col2 = st.sidebar.columns(2)
     with col1:
         schaefer = st.checkbox("Schaefer", value=True, key="schaefer_model")
     with col2:
         fox = st.checkbox("Fox", value=True, key="fox_model")
-    # Hapus Pella-Tomlinson dari sini
     
     # Simpan pilihan model
     selected_models = []
@@ -1309,6 +1302,7 @@ def main():
     Dikembangkan untuk Analisis Perikanan Berkelanjutan | © 2025
     """)
 
-if _name_ == "_main_":
+# PERBAIKAN: Gunakan __name__ yang benar
+if __name__ == "__main__":
     main()
 
