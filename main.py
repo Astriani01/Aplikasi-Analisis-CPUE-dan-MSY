@@ -53,7 +53,6 @@ if 'data_tables' not in st.session_state:
                 {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
             ]
         }
-    
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = None
     
@@ -1309,5 +1308,6 @@ def main():
 # PERBAIKAN: Gunakan __name__ yang benar
 if __name__ == "__main__":
     main()
+
 
 
