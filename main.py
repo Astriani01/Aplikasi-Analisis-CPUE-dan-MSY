@@ -27,12 +27,12 @@ def initialize_session_state():
         st.session_state.gear_config = {
             'gears': ['Jaring_Insang_Tetap', 'Jaring_Hela_Dasar', 'Bagan_Berperahu', 'Pancing'],
             'display_names': ['Jaring Insang Tetap', 'Jaring Hela Dasar', 'Bagan Berperahu', 'Pancing'],
-            'standard_gear': 'Jaring_Hela_Dasar',
+            'standard_gear': 'Pancing',  # Ganti standard gear menjadi Pancing
             'years': [2018, 2019, 2020, 2021, 2022, 2023],
             'num_years': 6
         }
 
-if 'data_tables' not in st.session_state:
+    if 'data_tables' not in st.session_state:
         st.session_state.data_tables = {
             'production': [
                 {'Tahun': 2018, 'Jaring_Insang_Tetap': 1004, 'Jaring_Hela_Dasar': 6105, 'Bagan_Berperahu': 628, 'Pancing': 811, 'Jumlah': 8548},
@@ -53,6 +53,7 @@ if 'data_tables' not in st.session_state:
                 {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
             ]
         }
+    
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = None
     
@@ -161,7 +162,7 @@ def render_template_section():
         """)
 
 # ==============================================
-# FUNGSI UPLOAD DATA
+# FUNGSI UPLOAD DATA YANG DIPERBAIKI
 # ==============================================
 def process_uploaded_file(uploaded_file):
     """Proses file yang diupload (Excel atau CSV)"""
@@ -375,7 +376,7 @@ def render_upload_section():
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write("📊 Data Produksi")
+                            st.write("📊 Data Produksi**")
                             st.dataframe(
                                 pd.DataFrame(converted_data['production']).style.format({
                                     col: "{:,.1f}" for col in converted_data['gears']
@@ -384,7 +385,7 @@ def render_upload_section():
                             )
                         
                         with col2:
-                            st.write("🎣 Data Upaya")
+                            st.write("🎣 Data Upaya**")
                             st.dataframe(
                                 pd.DataFrame(converted_data['effort']).style.format({
                                     col: "{:,}" for col in converted_data['gears']
@@ -401,7 +402,7 @@ def render_upload_section():
                             st.session_state.gear_config = {
                                 'gears': gears,
                                 'display_names': display_names,
-                                'standard_gear': gears[0] if gears else 'Jaring_Hela_Dasar',
+                                'standard_gear': 'Pancing' if 'Pancing' in gears else gears[0],
                                 'years': years,
                                 'num_years': len(years)
                             }
@@ -506,6 +507,103 @@ def bandingkan_model_msy(standard_effort_total, cpue_standard_total, production_
     return results
 
 # ==============================================
+# FUNGSI GRAFIK CPUE YANG DIPERBAIKI
+# ==============================================
+def buat_grafik_cpue_trend(df_cpue, gears, display_names):
+    """Buat grafik trend CPUE untuk semua alat tangkap"""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Warna untuk setiap alat tangkap
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+    
+    for i, gear in enumerate(gears):
+        if i < len(colors):
+            color = colors[i]
+        else:
+            color = 'black'
+        
+        ax.plot(df_cpue['Tahun'], df_cpue[gear], 
+                marker='o', linewidth=2, markersize=6, 
+                label=display_names[i], color=color)
+    
+    ax.set_xlabel('Tahun', fontsize=12, fontweight='bold')
+    ax.set_ylabel('CPUE (Ton/Trip)', fontsize=12, fontweight='bold')
+    ax.set_title('Trend CPUE per Alat Tangkap', fontsize=14, fontweight='bold')
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.grid(True, alpha=0.3)
+    
+    # Format sumbu Y
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.3f}'))
+    
+    # Rotasi label tahun
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    
+    return fig
+
+def buat_grafik_cpue_perbandingan(df_cpue, gears, display_names):
+    """Buat grafik perbandingan CPUE antar alat tangkap"""
+    # Hitung rata-rata CPUE per alat tangkap
+    avg_cpue = [df_cpue[gear].mean() for gear in gears]
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Buat bar chart
+    bars = ax.bar(display_names, avg_cpue, color='skyblue', edgecolor='navy', alpha=0.7)
+    
+    # Tambahkan nilai di atas bar
+    for bar, value in zip(bars, avg_cpue):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + 0.001,
+                f'{value:.3f}', ha='center', va='bottom', fontweight='bold')
+    
+    ax.set_xlabel('Alat Tangkap', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Rata-rata CPUE (Ton/Trip)', fontsize=12, fontweight='bold')
+    ax.set_title('Perbandingan Rata-rata CPUE Antar Alat Tangkap', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Rotasi label x
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    
+    return fig
+
+def buat_grafik_cpue_heatmap(df_cpue, gears, display_names):
+    """Buat heatmap CPUE per tahun dan alat tangkap"""
+    # Siapkan data untuk heatmap
+    heatmap_data = []
+    for gear in gears:
+        heatmap_data.append(df_cpue[gear].values)
+    
+    heatmap_data = np.array(heatmap_data)
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Buat heatmap
+    im = ax.imshow(heatmap_data, cmap='YlOrRd', aspect='auto')
+    
+    # Set labels
+    ax.set_xticks(range(len(df_cpue['Tahun'])))
+    ax.set_xticklabels([str(int(year)) for year in df_cpue['Tahun']])
+    ax.set_yticks(range(len(gears)))
+    ax.set_yticklabels(display_names)
+    
+    # Tambahkan colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('CPUE (Ton/Trip)', fontsize=12, fontweight='bold')
+    
+    # Tambahkan nilai di setiap cell
+    for i in range(len(gears)):
+        for j in range(len(df_cpue['Tahun'])):
+            text = ax.text(j, i, f'{heatmap_data[i, j]:.3f}',
+                          ha="center", va="center", color="black", fontsize=9)
+    
+    ax.set_title('Heatmap CPUE per Tahun dan Alat Tangkap', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    return fig
+
+# ==============================================
 # FUNGSI GRAFIK MSY
 # ==============================================
 def buat_grafik_msy_schaefer(ax, effort_data, cpue_data, model_results):
@@ -601,8 +699,8 @@ def buat_grafik_fox(ax, effort_data, production_data, model_results):
 
 def buat_grafik_perbandingan_model(ax, effort_data, production_data, all_results):
     """Buat grafik perbandingan semua model"""
-    colors = ['red', 'blue']  # Hanya 2 warna untuk 2 model
-    line_styles = ['-', '--']
+    colors = ['red', 'blue', 'orange']
+    line_styles = ['-', '--', '-.']
     
     # Data observasi
     ax.scatter(effort_data, production_data, color='black', s=80, zorder=5, label='Data Observasi')
@@ -725,7 +823,7 @@ def generate_years(start_year, num_years):
 def reset_data():
     # Reset ke data contoh
     st.session_state.data_tables = {
-       'production': [
+        'production': [
                 {'Tahun': 2018, 'Jaring_Insang_Tetap': 1004, 'Jaring_Hela_Dasar': 6105, 'Bagan_Berperahu': 628, 'Pancing': 811, 'Jumlah': 8548},
                 {'Tahun': 2019, 'Jaring_Insang_Tetap': 2189, 'Jaring_Hela_Dasar': 10145, 'Bagan_Berperahu': 77, 'Pancing': 396, 'Jumlah': 12807},
                 {'Tahun': 2020, 'Jaring_Insang_Tetap': 122, 'Jaring_Hela_Dasar': 9338, 'Bagan_Berperahu': 187, 'Pancing': 311, 'Jumlah': 9958},
@@ -742,8 +840,8 @@ def reset_data():
                 {'Tahun': 2022, 'Jaring_Insang_Tetap': 18796, 'Jaring_Hela_Dasar': 10183, 'Bagan_Berperahu': 1151, 'Pancing': 77, 'Jumlah': 30207},
                 {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959},
                 {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
-            ]
-        }
+        ]
+    }
     st.session_state.analysis_results = None
 
 def update_data_structure():
@@ -848,7 +946,14 @@ def render_sidebar():
         gear_names.append(internal_name)
         display_names.append(display_name)
     
-    standard_gear = st.sidebar.selectbox("Alat Standar (FPI)", gear_names, index=min(1, len(gear_names)-1))
+    # Standard gear otomatis Pancing jika ada, jika tidak gunakan yang pertama
+    if 'Pancing' in gear_names:
+        default_standard = 'Pancing'
+    else:
+        default_standard = gear_names[0] if gear_names else 'Pancing'
+    
+    standard_gear = st.sidebar.selectbox("Alat Standar (FPI)", gear_names, 
+                                        index=gear_names.index(default_standard) if default_standard in gear_names else 0)
     
     # Simpan konfigurasi
     if st.sidebar.button("💾 Simpan Konfigurasi", use_container_width=True, key="save_config"):
@@ -873,6 +978,98 @@ def render_sidebar():
     - *Kolom*: Tahun, [alat_tangkap1], [alat_tangkap2], ...
     - *Template*: Download template untuk format yang benar
     """)
+
+# ==============================================
+# FUNGSI PERHITUNGAN CPUE, FPI, dll. - DIMODIFIKASI
+# ==============================================
+def hitung_cpue(produksi_df, upaya_df, gears):
+    """Hitung CPUE untuk setiap alat tangkap"""
+    cpue_data = []
+    years = produksi_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        for gear in gears:
+            prod = produksi_df[produksi_df['Tahun'] == year][gear].values[0]
+            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
+            cpue = prod / eff if eff > 0 else 0
+            year_data[gear] = cpue
+        
+        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
+        cpue_data.append(year_data)
+    
+    return pd.DataFrame(cpue_data)
+
+def hitung_fpi_per_tahun(cpue_df, gears, standard_gear):
+    """Hitung FPI per tahun - FPI standard gear = 1, lainnya proporsional"""
+    fpi_data = []
+    years = cpue_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        
+        # Dapatkan CPUE alat standard
+        cpue_standard = cpue_df[cpue_df['Tahun'] == year][standard_gear].values[0]
+        
+        for gear in gears:
+            cpue_gear = cpue_df[cpue_df['Tahun'] == year][gear].values[0]
+            
+            # FPI = CPUE gear / CPUE standard gear
+            # Jika standard gear, FPI = 1
+            if gear == standard_gear:
+                fpi = 1.0
+            else:
+                fpi = cpue_gear / cpue_standard if cpue_standard > 0 else 0
+            
+            year_data[gear] = fpi
+        
+        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
+        fpi_data.append(year_data)
+    
+    return pd.DataFrame(fpi_data)
+
+def hitung_upaya_standar(upaya_df, fpi_df, gears):
+    """Hitung upaya standar"""
+    standard_effort_data = []
+    years = upaya_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        total_standard_effort = 0
+        
+        for gear in gears:
+            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
+            fpi = fpi_df[fpi_df['Tahun'] == year][gear].values[0]
+            standard_effort = eff * fpi
+            year_data[gear] = standard_effort
+            total_standard_effort += standard_effort
+        
+        year_data['Jumlah'] = total_standard_effort
+        standard_effort_data.append(year_data)
+    
+    return pd.DataFrame(standard_effort_data)
+
+def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
+    """Hitung CPUE standar"""
+    standard_cpue_data = []
+    years = produksi_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        total_production = produksi_df[produksi_df['Tahun'] == year]['Jumlah'].values[0]
+        total_standard_effort = standard_effort_df[standard_effort_df['Tahun'] == year]['Jumlah'].values[0]
+        
+        cpue_standar_total = total_production / total_standard_effort if total_standard_effort > 0 else 0
+        year_data['CPUE_Standar_Total'] = cpue_standar_total
+        year_data['Ln_CPUE'] = np.log(cpue_standar_total) if cpue_standar_total > 0 else 0
+        
+        standard_cpue_data.append(year_data)
+    
+    return pd.DataFrame(standard_cpue_data)
 
 # ==============================================
 # FUNGSI INPUT DATA MANUAL DAN UPLOAD
@@ -1012,94 +1209,7 @@ def render_data_input():
     return production_inputs, effort_inputs
 
 # ==============================================
-# FUNGSI PERHITUNGAN CPUE, FPI, dll.
-# ==============================================
-def hitung_cpue(produksi_df, upaya_df, gears):
-    """Hitung CPUE untuk setiap alat tangkap"""
-    cpue_data = []
-    years = produksi_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        for gear in gears:
-            prod = produksi_df[produksi_df['Tahun'] == year][gear].values[0]
-            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
-            cpue = prod / eff if eff > 0 else 0
-            year_data[gear] = cpue
-        
-        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
-        cpue_data.append(year_data)
-    
-    return pd.DataFrame(cpue_data)
-
-def hitung_fpi_per_tahun(cpue_df, gears, standard_gear):
-    """Hitung FPI per tahun - FPI diambil dari nilai CPUE tertinggi = 1"""
-    fpi_data = []
-    years = cpue_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        
-        # Cari nilai CPUE maksimum untuk tahun ini
-        cpue_values = [cpue_df[cpue_df['Tahun'] == year][gear].values[0] for gear in gears]
-        max_cpue = max(cpue_values) if cpue_values else 1
-        
-        for gear in gears:
-            cpue_gear = cpue_df[cpue_df['Tahun'] == year][gear].values[0]
-            # FPI = CPUE gear / CPUE maksimum (sehingga nilai tertinggi = 1)
-            fpi = cpue_gear / max_cpue if max_cpue > 0 else 0
-            year_data[gear] = fpi
-        
-        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
-        fpi_data.append(year_data)
-    
-    return pd.DataFrame(fpi_data)
-
-def hitung_upaya_standar(upaya_df, fpi_df, gears):
-    """Hitung upaya standar"""
-    standard_effort_data = []
-    years = upaya_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        total_standard_effort = 0
-        
-        for gear in gears:
-            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
-            fpi = fpi_df[fpi_df['Tahun'] == year][gear].values[0]
-            standard_effort = eff * fpi
-            year_data[gear] = standard_effort
-            total_standard_effort += standard_effort
-        
-        year_data['Jumlah'] = total_standard_effort
-        standard_effort_data.append(year_data)
-    
-    return pd.DataFrame(standard_effort_data)
-
-def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
-    """Hitung CPUE standar"""
-    standard_cpue_data = []
-    years = produksi_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        total_production = produksi_df[produksi_df['Tahun'] == year]['Jumlah'].values[0]
-        total_standard_effort = standard_effort_df[standard_effort_df['Tahun'] == year]['Jumlah'].values[0]
-        
-        cpue_standar_total = total_production / total_standard_effort if total_standard_effort > 0 else 0
-        year_data['CPUE_Standar_Total'] = cpue_standar_total
-        year_data['Ln_CPUE'] = np.log(cpue_standar_total) if cpue_standar_total > 0 else 0
-        
-        standard_cpue_data.append(year_data)
-    
-    return pd.DataFrame(standard_cpue_data)
-
-# ==============================================
-# PROSES ANALISIS UTAMA
+# PROSES ANALISIS UTAMA - DITAMBAH GRAFIK CPUE
 # ==============================================
 def proses_analisis_utama(production_inputs, effort_inputs):
     """Proses analisis utama dengan multi-model MSY"""
@@ -1166,10 +1276,13 @@ def proses_analisis_utama(production_inputs, effort_inputs):
         with col4:
             st.metric("Koefisien Determinasi (R²)", f"{best_model['r_squared']:.3f}")
         
+        # Tampilkan informasi FPI
+        st.info(f"*Alat standar untuk FPI*: {standard_gear} (FPI = 1.0)")
+        
         # Tampilkan tabel-tabel hasil
         st.header("📋 Hasil Perhitungan")
         
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🍤 Produksi", "🎣 Upaya", "📊 CPUE", "🎯 FPI", "⚖ Upaya Standar"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🍤 Produksi", "🎣 Upaya", "📊 CPUE", "🎯 FPI", "⚖ Upaya Standar", "📈 Grafik CPUE"])
         
         with tab1:
             st.dataframe(df_production.style.format({col: "{:,.1f}" for col in df_production.columns if col != 'Tahun'}), use_container_width=True)
@@ -1182,14 +1295,39 @@ def proses_analisis_utama(production_inputs, effort_inputs):
         
         with tab4:
             st.dataframe(df_fpi.style.format({col: "{:.3f}" for col in df_fpi.columns if col != 'Tahun'}), use_container_width=True)
+            st.info(f"💡 *Keterangan FPI*: {standard_gear} sebagai alat standar dengan FPI = 1.0")
         
         with tab5:
             st.dataframe(df_standard_effort.style.format({col: "{:,.1f}" for col in df_standard_effort.columns if col != 'Tahun'}), use_container_width=True)
         
-        # Visualisasi
-        st.header("📈 Visualisasi Hasil")
+        with tab6:
+            st.subheader("📈 Grafik Analisis CPUE")
+            
+            # Buat tab untuk berbagai jenis grafik CPUE
+            cpue_tab1, cpue_tab2, cpue_tab3 = st.tabs(["📈 Trend CPUE", "📊 Perbandingan CPUE", "🔥 Heatmap CPUE"])
+            
+            with cpue_tab1:
+                st.subheader("Trend CPUE per Alat Tangkap")
+                fig_trend = buat_grafik_cpue_trend(df_cpue, gears, display_names)
+                st.pyplot(fig_trend)
+                plt.close()
+                
+            with cpue_tab2:
+                st.subheader("Perbandingan Rata-rata CPUE")
+                fig_comparison = buat_grafik_cpue_perbandingan(df_cpue, gears, display_names)
+                st.pyplot(fig_comparison)
+                plt.close()
+                
+            with cpue_tab3:
+                st.subheader("Heatmap CPUE")
+                fig_heatmap = buat_grafik_cpue_heatmap(df_cpue, gears, display_names)
+                st.pyplot(fig_heatmap)
+                plt.close()
         
-        # Panggil fungsi grafik MSY yang baru
+        # Visualisasi MSY
+        st.header("📈 Visualisasi Hasil MSY")
+        
+        # Panggil fungsi grafik MSY
         render_grafik_msy_lengkap(effort_values, cpue_values, production_values, results_dict)
         
         # Visualisasi sederhana lainnya
@@ -1282,31 +1420,26 @@ def main():
     - *Schaefer*: Model linear sederhana - CPUE vs Upaya
     - *Fox*: Model eksponensial - Produksi vs Upaya  
     
-    *📈 Grafik MSY yang Dihasilkan:*
-    - Grafik individual setiap model
-    - Grafik produksi vs upaya
-    - Perbandingan model Schaefer vs Fox
-    - Titik MSY dan kurva produksi
+    *🎯 Konfigurasi FPI:*
+    - *Alat standar*: Pancing (FPI = 1.0)
+    - Alat lain: FPI = CPUE alat / CPUE pancing
+    
+    *📈 Grafik yang Dihasilkan:*
+    - Trend CPUE per alat tangkap
+    - Perbandingan rata-rata CPUE
+    - Heatmap CPUE per tahun
+    - Grafik MSY (Schaefer & Fox)
     
     *🔍 Analisis yang Dilakukan:*
     - Perhitungan CPUE (Catch Per Unit Effort)
     - Standardisasi upaya penangkapan dengan FPI
-    - Estimasi MSY dengan dua model (Schaefer & Fox)
+    - Estimasi MSY dengan dua model
     - Analisis tingkat pemanfaatan sumber daya
-    
-    *📤 Fitur Upload:*
-    - Support file Excel (.xlsx, .xls) dan CSV (.csv)
-    - *Template Excel* tersedia untuk diunduh
-    - *Excel*: Sheet 1 = Produksi, Sheet 2 = Upaya
-    - Konversi otomatis ke format aplikasi
-    
-    Aplikasi akan membandingkan kedua model dan merekomendasikan yang terbaik.
     
     Dikembangkan untuk Analisis Perikanan Berkelanjutan | © 2025
     """)
 
-# PERBAIKAN: Gunakan __name__ yang benar
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
 
 
