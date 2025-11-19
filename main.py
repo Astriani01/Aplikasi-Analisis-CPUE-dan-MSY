@@ -58,7 +58,7 @@ def initialize_session_state():
         st.session_state.analysis_results = None
     
     if 'selected_models' not in st.session_state:
-        st.session_state.selected_models = ['Schaefer', 'Fox', 'Pella-Tomlinson']
+        st.session_state.selected_models = ['Schaefer', 'Fox']  # Hapus Pella-Tomlinson
     
     if 'uploaded_data' not in st.session_state:
         st.session_state.uploaded_data = None
@@ -124,19 +124,19 @@ def render_template_section():
     
     with col1:
         st.markdown("""
-        **📝 Struktur Template Excel:**
+        *📝 Struktur Template Excel:*
         
-        **Sheet 'Produksi' (dalam Ton):**
+        *Sheet 'Produksi' (dalam Ton):*
         - Kolom A: Tahun
         - Kolom B-E: Nama alat tangkap (contoh: Jaring_Insang_Tetap, Jaring_Hela_Dasar, dll.)
         - Kolom F: Jumlah (total)
         
-        **Sheet 'Upaya' (dalam Trip):**
+        *Sheet 'Upaya' (dalam Trip):*
         - Kolom A: Tahun
         - Kolom B-E: Nama alat tangkap (harus sama dengan sheet Produksi)
         - Kolom F: Jumlah (total)
         
-        **💡 Tips:**
+        *💡 Tips:*
         - Nama alat tangkap harus sama di kedua sheet
         - Tahun harus sama dan berurutan
         - Data harus numerik (tanpa teks atau karakter khusus)
@@ -154,7 +154,7 @@ def render_template_section():
         )
         
         st.markdown("""
-        **🔧 Cara Penggunaan:**
+        *🔧 Cara Penggunaan:*
         1. Download template
         2. Isi dengan data Anda
         3. Upload file yang sudah diisi
@@ -186,7 +186,7 @@ def process_uploaded_file(uploaded_file):
                 # Hanya ada 1 sheet
                 production_sheet = excel_data[sheet_names[0]]
                 effort_sheet = None
-                st.warning("⚠️ Hanya 1 sheet ditemukan. Data upaya akan dibuat otomatis.")
+                st.warning("⚠ Hanya 1 sheet ditemukan. Data upaya akan dibuat otomatis.")
                 
         elif uploaded_file.name.endswith('.csv'):
             # Baca file CSV
@@ -226,7 +226,7 @@ def validate_uploaded_data(uploaded_data):
         st.success(f"✅ Data upaya valid: {len(effort_df)} baris, {len(effort_df.columns)} kolom")
         st.write(f"📋 Kolom upaya: {list(effort_df.columns)}")
     else:
-        st.warning("⚠️ Data upaya tidak ditemukan, akan dibuat otomatis")
+        st.warning("⚠ Data upaya tidak ditemukan, akan dibuat otomatis")
     
     return True
 
@@ -286,7 +286,7 @@ def convert_uploaded_data(uploaded_data):
                 result_data.append(year_data)
                 
             except Exception as e:
-                st.warning(f"⚠️ Skip baris {data_type} dengan error: {e}")
+                st.warning(f"⚠ Skip baris {data_type} dengan error: {e}")
                 continue
         
         return result_data, gear_columns
@@ -300,7 +300,7 @@ def convert_uploaded_data(uploaded_data):
         
         # Pastikan kolom alat tangkap konsisten
         if set(prod_gears) != set(effort_gears):
-            st.warning("⚠️ Kolom alat tangkap tidak konsisten antara produksi dan upaya")
+            st.warning("⚠ Kolom alat tangkap tidak konsisten antara produksi dan upaya")
             # Gunakan intersection dari kedua set
             common_gears = list(set(prod_gears) & set(effort_gears))
             if common_gears:
@@ -376,7 +376,7 @@ def render_upload_section():
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write("**📊 Data Produksi**")
+                            st.write("📊 Data Produksi**")
                             st.dataframe(
                                 pd.DataFrame(converted_data['production']).style.format({
                                     col: "{:,.1f}" for col in converted_data['gears']
@@ -385,7 +385,7 @@ def render_upload_section():
                             )
                         
                         with col2:
-                            st.write("**🎣 Data Upaya**")
+                            st.write("🎣 Data Upaya**")
                             st.dataframe(
                                 pd.DataFrame(converted_data['effort']).style.format({
                                     col: "{:,}" for col in converted_data['gears']
@@ -425,7 +425,7 @@ def render_upload_section():
     return None, None
 
 # ==============================================
-# FUNGSI MODEL MSY - MULTI MODEL
+# FUNGSI MODEL MSY - MULTI MODEL (TANPA PELLA-TOMLINSON)
 # ==============================================
 def analisis_msy_schaefer(standard_effort_total, cpue_standard_total):
     """Analisis MSY menggunakan Model Schaefer (Linear)"""
@@ -494,51 +494,6 @@ def analisis_msy_fox(standard_effort_total, production_total):
     except Exception as e:
         return {'success': False, 'error': f'Error dalam model Fox: {str(e)}'}
 
-def model_pella_tomlinson(F, a, b, m):
-    """Model Pella-Tomlinson: C = a*F^m - b*F^(m+1)"""
-    return a * (F ** m) - b * (F ** (m + 1))
-
-def analisis_msy_pella_tomlinson(standard_effort_total, production_total):
-    """Analisis MSY menggunakan Model Pella-Tomlinson (Generalized)"""
-    if len(standard_effort_total) < 4:
-        return None
-    
-    try:
-        # Initial guess untuk parameter (m biasanya sekitar 1-2 untuk perikanan)
-        initial_guess = [1.0, 0.001, 1.5]
-        
-        # Batasan parameter
-        bounds = ([0.1, 0.0001, 0.5], [10.0, 0.1, 3.0])
-        
-        # Curve fitting
-        popt, pcov = curve_fit(model_pella_tomlinson, standard_effort_total, production_total, 
-                              p0=initial_guess, bounds=bounds, maxfev=10000)
-        a, b, m = popt
-        
-        if b <= 0 or m <= 0:
-            return {'success': False, 'error': 'Parameter b dan m harus positif untuk model Pella-Tomlinson yang valid'}
-        
-        # Hitung MSY parameters untuk model Pella-Tomlinson
-        F_MSY = (a * m / (b * (m + 1))) ** (1 / m) if b != 0 and m != 0 else 0
-        C_MSY = model_pella_tomlinson(F_MSY, a, b, m)
-        U_MSY = C_MSY / F_MSY if F_MSY > 0 else 0
-        
-        # Hitung R-squared
-        predictions = model_pella_tomlinson(standard_effort_total, a, b, m)
-        ss_res = np.sum((production_total - predictions) ** 2)
-        ss_tot = np.sum((production_total - np.mean(production_total)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-        
-        return {
-            'model': 'Pella-Tomlinson',
-            'a': a, 'b': b, 'm': m, 'r_squared': r_squared, 'p_value': 0.001,
-            'std_err': np.sqrt(np.diag(pcov))[0], 'F_MSY': F_MSY, 'C_MSY': C_MSY, 'U_MSY': U_MSY,
-            'success': True,
-            'equation': f"C = {a:.4f} × F^{m:.3f} - {b:.6f} × F^{m+1:.3f}"
-        }
-    except Exception as e:
-        return {'success': False, 'error': f'Error dalam model Pella-Tomlinson: {str(e)}'}
-
 def bandingkan_model_msy(standard_effort_total, cpue_standard_total, production_total, selected_models):
     """Bandingkan beberapa model MSY"""
     results = {}
@@ -549,13 +504,12 @@ def bandingkan_model_msy(standard_effort_total, cpue_standard_total, production_
     if 'Fox' in selected_models:
         results['Fox'] = analisis_msy_fox(standard_effort_total, production_total)
     
-    if 'Pella-Tomlinson' in selected_models:
-        results['Pella-Tomlinson'] = analisis_msy_pella_tomlinson(standard_effort_total, production_total)
+    # Hapus Pella-Tomlinson dari sini
     
     return results
 
 # ==============================================
-# FUNGSI GRAFIK MSY YANG DITAMBAHKAN
+# FUNGSI GRAFIK MSY YANG DITAMBAHKAN (TANPA PELLA-TOMLINSON)
 # ==============================================
 def buat_grafik_msy_schaefer(ax, effort_data, cpue_data, model_results):
     """Buat grafik MSY untuk model Schaefer"""
@@ -648,40 +602,10 @@ def buat_grafik_fox(ax, effort_data, production_data, model_results):
                 xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*0.9),
                 arrowprops=dict(arrowstyle='->', color='green'))
 
-def buat_grafik_pella_tomlinson(ax, effort_data, production_data, model_results):
-    """Buat grafik untuk model Pella-Tomlinson"""
-    if not model_results['success']:
-        return
-    
-    # Data observasi
-    ax.scatter(effort_data, production_data, color='blue', s=60, zorder=5, label='Data Observasi')
-    
-    # Kurva model Pella-Tomlinson
-    x_fit = np.linspace(0.1, max(effort_data) * 1.2, 100)
-    y_fit = model_pella_tomlinson(x_fit, model_results['a'], model_results['b'], model_results['m'])
-    ax.plot(x_fit, y_fit, 'r-', linewidth=2, label='Model Pella-Tomlinson')
-    
-    # Titik MSY
-    msy_x = model_results['F_MSY']
-    msy_y = model_results['C_MSY']
-    ax.scatter([msy_x], [msy_y], color='green', s=100, zorder=6, label='MSY Point')
-    ax.axvline(x=msy_x, color='green', linestyle='--', alpha=0.7)
-    
-    ax.set_xlabel('Upaya Penangkapan (F)')
-    ax.set_ylabel('Produksi (C)')
-    ax.set_title('Model Pella-Tomlinson: Produksi vs Upaya')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    # Anotasi MSY
-    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} ton', 
-                xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*0.9),
-                arrowprops=dict(arrowstyle='->', color='green'))
-
 def buat_grafik_perbandingan_model(ax, effort_data, production_data, all_results):
     """Buat grafik perbandingan semua model"""
-    colors = ['red', 'blue', 'orange', 'purple', 'brown']
-    line_styles = ['-', '--', '-.', ':']
+    colors = ['red', 'blue', 'orange']  # Kurangi warna karena hanya 2 model
+    line_styles = ['-', '--', '-.']
     
     # Data observasi
     ax.scatter(effort_data, production_data, color='black', s=80, zorder=5, label='Data Observasi')
@@ -695,8 +619,6 @@ def buat_grafik_perbandingan_model(ax, effort_data, production_data, all_results
                 y_fit = results['a'] * x_fit + results['b'] * (x_fit ** 2)
             elif model_name == 'Fox':
                 y_fit = model_fox(x_fit, results['a'], results['b'])
-            elif model_name == 'Pella-Tomlinson':
-                y_fit = model_pella_tomlinson(x_fit, results['a'], results['b'], results['m'])
             else:
                 continue
                 
@@ -710,7 +632,7 @@ def buat_grafik_perbandingan_model(ax, effort_data, production_data, all_results
     
     ax.set_xlabel('Upaya Penangkapan (F)')
     ax.set_ylabel('Produksi (C)')
-    ax.set_title('Perbandingan Model MSY')
+    ax.set_title('Perbandingan Model MSY (Schaefer vs Fox)')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -732,26 +654,16 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
         
         # Tentukan layout berdasarkan jumlah model
         n_models = len(successful_models)
-        if n_models == 1:
-            cols = [1]
-        elif n_models == 2:
-            cols = [1, 1]
-        else:
-            cols = [1, 1, 1]
+        cols = st.columns(n_models)  # Sesuaikan dengan jumlah model yang ada
         
         for i, (model_name, results) in enumerate(successful_models.items()):
-            if i % len(cols) == 0:
-                col_grafik = st.columns(len(cols))
-            
-            with col_grafik[i % len(cols)]:
+            with cols[i]:
                 fig, ax = plt.subplots(figsize=(6, 4))
                 
                 if model_name == 'Schaefer':
                     buat_grafik_msy_schaefer(ax, effort_data, cpue_data, results)
                 elif model_name == 'Fox':
                     buat_grafik_fox(ax, effort_data, production_data, results)
-                elif model_name == 'Pella-Tomlinson':
-                    buat_grafik_pella_tomlinson(ax, effort_data, production_data, results)
                 
                 st.pyplot(fig)
                 plt.close()
@@ -761,32 +673,22 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
         
         # Tentukan layout
         n_models = len(successful_models)
-        if n_models == 1:
-            cols = [1]
-        elif n_models == 2:
-            cols = [1, 1]
-        else:
-            cols = [1, 1, 1]
+        cols = st.columns(n_models)
         
         for i, (model_name, results) in enumerate(successful_models.items()):
-            if i % len(cols) == 0:
-                col_grafik = st.columns(len(cols))
-            
-            with col_grafik[i % len(cols)]:
+            with cols[i]:
                 fig, ax = plt.subplots(figsize=(6, 4))
                 
                 if model_name == 'Schaefer':
                     buat_grafik_produksi_schaefer(ax, effort_data, production_data, results)
                 elif model_name == 'Fox':
                     buat_grafik_fox(ax, effort_data, production_data, results)
-                elif model_name == 'Pella-Tomlinson':
-                    buat_grafik_pella_tomlinson(ax, effort_data, production_data, results)
                 
                 st.pyplot(fig)
                 plt.close()
     
     with tab3:
-        st.subheader("Perbandingan Semua Model")
+        st.subheader("Perbandingan Model Schaefer vs Fox")
         
         fig, ax = plt.subplots(figsize=(10, 6))
         buat_grafik_perbandingan_model(ax, effort_data, production_data, successful_models)
@@ -894,21 +796,20 @@ def update_data_structure():
     st.session_state.data_tables = {'production': new_production, 'effort': new_effort}
 
 # ==============================================
-# FUNGSI SIDEBAR - DENGAN UPLOAD
+# FUNGSI SIDEBAR - DENGAN UPLOAD (TANPA PELLA-TOMLINSON)
 # ==============================================
 def render_sidebar():
     """Render sidebar dengan fitur upload"""
     st.sidebar.header("⚙ Konfigurasi Analisis")
     
-    # Pilihan Model MSY
+    # Pilihan Model MSY - Hanya Schaefer dan Fox
     st.sidebar.subheader("🔧 Pilih Model MSY")
-    col1, col2, col3 = st.sidebar.columns(3)
+    col1, col2 = st.sidebar.columns(2)  # Hanya 2 kolom sekarang
     with col1:
         schaefer = st.checkbox("Schaefer", value=True, key="schaefer_model")
     with col2:
         fox = st.checkbox("Fox", value=True, key="fox_model")
-    with col3:
-        pella = st.checkbox("Pella-Tomlinson", value=True, key="pella_model")
+    # Hapus Pella-Tomlinson dari sini
     
     # Simpan pilihan model
     selected_models = []
@@ -916,8 +817,6 @@ def render_sidebar():
         selected_models.append('Schaefer')
     if fox:
         selected_models.append('Fox')
-    if pella:
-        selected_models.append('Pella-Tomlinson')
     
     st.session_state.selected_models = selected_models
     
@@ -972,11 +871,11 @@ def render_sidebar():
     # Informasi Upload
     st.sidebar.markdown("---")
     st.sidebar.info("""
-    **📝 Panduan Upload:**
-    - **Excel**: Sheet 1 = Produksi, Sheet 2 = Upaya
-    - **CSV**: File tunggal dengan data produksi
-    - **Kolom**: Tahun, [alat_tangkap1], [alat_tangkap2], ...
-    - **Template**: Download template untuk format yang benar
+    *📝 Panduan Upload:*
+    - *Excel*: Sheet 1 = Produksi, Sheet 2 = Upaya
+    - *CSV*: File tunggal dengan data produksi
+    - *Kolom*: Tahun, [alat_tangkap1], [alat_tangkap2], ...
+    - *Template*: Download template untuk format yang benar
     """)
 
 # ==============================================
@@ -994,7 +893,7 @@ def render_manual_input():
     # Tampilkan data current
     current_data = st.session_state.data_tables['production']
     if current_data:
-        st.info(f"**Data terkini:** {len(current_data)} tahun ({years[0]} - {years[-1]}), {len(gears)} alat tangkap")
+        st.info(f"*Data terkini:* {len(current_data)} tahun ({years[0]} - {years[-1]}), {len(gears)} alat tangkap")
     
     # Input Data Produksi
     st.subheader("🍤 Data Produksi (Ton)")
@@ -1004,7 +903,7 @@ def render_manual_input():
     
     for i, header in enumerate(headers):
         with prod_cols[i]:
-            st.markdown(f"**{header}**")
+            st.markdown(f"{header}")
     
     production_inputs = []
     for i, year in enumerate(years):
@@ -1012,7 +911,7 @@ def render_manual_input():
         row_data = {'Tahun': year}
         
         with cols[0]:
-            st.markdown(f"**{year}**")
+            st.markdown(f"{year}")
         
         total_prod = 0
         for j, gear in enumerate(gears):
@@ -1040,7 +939,7 @@ def render_manual_input():
                 total_prod += prod_value
         
         with cols[-1]:
-            st.markdown(f"**{total_prod:,.1f}**")
+            st.markdown(f"{total_prod:,.1f}")
             row_data['Jumlah'] = total_prod
         
         production_inputs.append(row_data)
@@ -1051,7 +950,7 @@ def render_manual_input():
     effort_cols = st.columns(len(headers))
     for i, header in enumerate(headers):
         with effort_cols[i]:
-            st.markdown(f"**{header}**")
+            st.markdown(f"{header}")
     
     effort_inputs = []
     for i, year in enumerate(years):
@@ -1059,7 +958,7 @@ def render_manual_input():
         row_data = {'Tahun': year}
         
         with cols[0]:
-            st.markdown(f"**{year}**")
+            st.markdown(f"{year}")
         
         total_eff = 0
         for j, gear in enumerate(gears):
@@ -1086,7 +985,7 @@ def render_manual_input():
                 total_eff += eff_value
         
         with cols[-1]:
-            st.markdown(f"**{total_eff:,}**")
+            st.markdown(f"{total_eff:,}")
             row_data['Jumlah'] = total_eff
         
         effort_inputs.append(row_data)
@@ -1101,7 +1000,7 @@ def render_data_input():
     """Render input data manual dan upload"""
     
     # Tab untuk pilihan input method
-    tab1, tab2 = st.tabs(["📤 Upload File", "✍️ Input Manual"])
+    tab1, tab2 = st.tabs(["📤 Upload File", "✍ Input Manual"])
     
     with tab1:
         production_inputs, effort_inputs = render_upload_section()
@@ -1204,53 +1103,6 @@ def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
     return pd.DataFrame(standard_cpue_data)
 
 # ==============================================
-# FUNGSI ANALISIS TINGKAT PEMANFAATAN
-# ==============================================
-def analisis_tingkat_pemanfaatan(production_total, effort_total, msy_results):
-    """Analisis tingkat pemanfaatan sumber daya perikanan"""
-    analysis_data = []
-    
-    for model_name, results in msy_results.items():
-        if results and results['success']:
-            current_production = production_total[-1]  # Produksi tahun terakhir
-            current_effort = effort_total[-1]  # Upaya tahun terakhir
-            c_msy = results['C_MSY']
-            f_msy = results['F_MSY']
-            
-            # Tingkat pemanfaatan (% dari MSY)
-            utilization_production = (current_production / c_msy) * 100 if c_msy > 0 else 0
-            utilization_effort = (current_effort / f_msy) * 100 if f_msy > 0 else 0
-            
-            # Status pemanfaatan
-            if utilization_production < 80:
-                status_production = "Underfishing"
-            elif utilization_production > 120:
-                status_production = "Overfishing"
-            else:
-                status_production = "Optimal"
-                
-            if utilization_effort < 80:
-                status_effort = "Underfishing"
-            elif utilization_effort > 120:
-                status_effort = "Overfishing"
-            else:
-                status_effort = "Optimal"
-            
-            analysis_data.append({
-                'Model': model_name,
-                'Produksi_MSY': c_msy,
-                'Upaya_MSY': f_msy,
-                'Produksi_Aktual': current_production,
-                'Upaya_Aktual': current_effort,
-                'Utilisasi_Produksi': utilization_production,
-                'Utilisasi_Upaya': utilization_effort,
-                'Status_Produksi': status_production,
-                'Status_Upaya': status_effort
-            })
-    
-    return pd.DataFrame(analysis_data)
-
-# ==============================================
 # PROSES ANALISIS UTAMA
 # ==============================================
 def proses_analisis_utama(production_inputs, effort_inputs):
@@ -1306,7 +1158,7 @@ def proses_analisis_utama(production_inputs, effort_inputs):
         
         st.markdown("---")
         st.header("📊 Hasil Analisis CPUE dan MSY")
-        st.info(f"**Model terbaik**: {best_model_name} (R² = {best_model['r_squared']:.3f})")
+        st.info(f"*Model terbaik*: {best_model_name} (R² = {best_model['r_squared']:.3f})")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -1408,7 +1260,7 @@ def buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_sta
 # APLIKASI UTAMA
 # ==============================================
 def main():
-    """Aplikasi utama dengan multi-model MSY dan fitur upload"""
+    """Aplikasi utama dengan model Schaefer dan Fox saja"""
     initialize_session_state()
     
     # Render sidebar
@@ -1430,34 +1282,33 @@ def main():
     # Footer
     st.markdown("---")
     st.markdown("""
-    **📚 Model MSY yang Tersedia:**
-    - **Schaefer**: Model linear sederhana - CPUE vs Upaya
-    - **Fox**: Model eksponensial - Produksi vs Upaya  
-    - **Pella-Tomlinson**: Model generalisasi dengan parameter bentuk
+    *📚 Model MSY yang Tersedia:*
+    - *Schaefer*: Model linear sederhana - CPUE vs Upaya
+    - *Fox*: Model eksponensial - Produksi vs Upaya  
     
-    **📈 Grafik MSY yang Dihasilkan:**
+    *📈 Grafik MSY yang Dihasilkan:*
     - Grafik individual setiap model
     - Grafik produksi vs upaya
-    - Perbandingan semua model dalam satu grafik
+    - Perbandingan model Schaefer vs Fox
     - Titik MSY dan kurva produksi
     
-    **🔍 Analisis yang Dilakukan:**
+    *🔍 Analisis yang Dilakukan:*
     - Perhitungan CPUE (Catch Per Unit Effort)
     - Standardisasi upaya penangkapan dengan FPI
-    - Estimasi MSY dengan multi-model
+    - Estimasi MSY dengan dua model (Schaefer & Fox)
     - Analisis tingkat pemanfaatan sumber daya
     
-    **📤 Fitur Upload:**
+    *📤 Fitur Upload:*
     - Support file Excel (.xlsx, .xls) dan CSV (.csv)
-    - **Template Excel** tersedia untuk diunduh
-    - **Excel**: Sheet 1 = Produksi, Sheet 2 = Upaya
+    - *Template Excel* tersedia untuk diunduh
+    - *Excel*: Sheet 1 = Produksi, Sheet 2 = Upaya
     - Konversi otomatis ke format aplikasi
     
-    *Aplikasi akan membandingkan semua model yang dipilih dan merekomendasikan yang terbaik.*
+    Aplikasi akan membandingkan kedua model dan merekomendasikan yang terbaik.
     
     Dikembangkan untuk Analisis Perikanan Berkelanjutan | © 2025
     """)
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
 
