@@ -707,6 +707,152 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
         st.dataframe(pd.DataFrame(comparison_data), use_container_width=True)
 
 # ==============================================
+# FUNGSI EKSPOR HASIL ANALISIS
+# ==============================================
+def ekspor_hasil_analisis():
+    """Ekspor hasil analisis ke file Excel"""
+    if st.session_state.analysis_results is None:
+        st.error("❌ Tidak ada hasil analisis untuk diekspor. Silakan lakukan analisis terlebih dahulu.")
+        return None
+    
+    try:
+        results = st.session_state.analysis_results
+        
+        # Buat file Excel dalam memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Sheet Data Dasar
+            results['df_production'].to_excel(writer, sheet_name='Data Produksi', index=False)
+            results['df_effort'].to_excel(writer, sheet_name='Data Upaya', index=False)
+            results['df_cpue'].to_excel(writer, sheet_name='CPUE', index=False)
+            results['df_fpi'].to_excel(writer, sheet_name='FPI', index=False)
+            results['df_standard_effort'].to_excel(writer, sheet_name='Upaya Standar', index=False)
+            results['df_standard_cpue'].to_excel(writer, sheet_name='CPUE Standar', index=False)
+            
+            # Sheet Hasil MSY
+            msy_data = []
+            for model_name, model_results in results['msy_results'].items():
+                if model_results and model_results['success']:
+                    msy_data.append({
+                        'Model': model_name,
+                        'C_MSY (ton)': model_results['C_MSY'],
+                        'F_MSY': model_results['F_MSY'],
+                        'U_MSY': model_results['U_MSY'],
+                        'R²': model_results['r_squared'],
+                        'Persamaan': model_results['equation'],
+                        'Status': 'Valid'
+                    })
+                else:
+                    msy_data.append({
+                        'Model': model_name,
+                        'C_MSY (ton)': '-',
+                        'F_MSY': '-',
+                        'U_MSY': '-',
+                        'R²': '-',
+                        'Persamaan': '-',
+                        'Status': model_results.get('error', 'Gagal') if model_results else 'Tidak ada hasil'
+                    })
+            
+            df_msy = pd.DataFrame(msy_data)
+            df_msy.to_excel(writer, sheet_name='Hasil MSY', index=False)
+            
+            # Sheet Ringkasan
+            workbook = writer.book
+            worksheet_summary = workbook.add_worksheet('Ringkasan Analisis')
+            
+            # Formatting
+            format_header = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC'})
+            format_value = workbook.add_format({'num_format': '#,##0.00'})
+            
+            # Tulis ringkasan
+            worksheet_summary.write('A1', 'RINGKASAN HASIL ANALISIS CPUE & MSY', format_header)
+            worksheet_summary.write('A3', 'Parameter', format_header)
+            worksheet_summary.write('B3', 'Nilai', format_header)
+            
+            # Cari model terbaik
+            successful_models = {k: v for k, v in results['msy_results'].items() 
+                               if v and v['success']}
+            if successful_models:
+                best_model = max(successful_models.items(), key=lambda x: x[1]['r_squared'])
+                best_model_name, best_model_results = best_model
+                
+                summary_data = [
+                    ('Model Terbaik', best_model_name),
+                    ('Maximum Sustainable Yield (MSY)', f"{best_model_results['C_MSY']:,.1f} ton"),
+                    ('Optimum Fishing Effort (F_MSY)', f"{best_model_results['F_MSY']:,.1f}"),
+                    ('CPUE Optimum (U_MSY)', f"{best_model_results['U_MSY']:.3f}"),
+                    ('Koefisien Determinasi (R²)', f"{best_model_results['r_squared']:.3f}"),
+                    ('Jumlah Tahun Data', len(results['df_production'])),
+                    ('Jumlah Alat Tangkap', len(st.session_state.gear_config['gears'])),
+                    ('Alat Tangkap Standar', st.session_state.gear_config['standard_gear']),
+                    ('Rentang Tahun', f"{results['df_production']['Tahun'].min()} - {results['df_production']['Tahun'].max()}")
+                ]
+                
+                for i, (param, value) in enumerate(summary_data, start=4):
+                    worksheet_summary.write(f'A{i}', param)
+                    worksheet_summary.write(f'B{i}', value)
+            
+            worksheet_summary.set_column('A:A', 25)
+            worksheet_summary.set_column('B:B', 20)
+        
+        processed_data = output.getvalue()
+        return processed_data
+        
+    except Exception as e:
+        st.error(f"❌ Error saat mengekspor hasil: {str(e)}")
+        return None
+
+def render_ekspor_section():
+    """Render section untuk ekspor hasil"""
+    if st.session_state.analysis_results is None:
+        st.warning("📊 Hasil analisis belum tersedia. Silakan lakukan analisis terlebih dahulu.")
+        return
+    
+    st.header("📤 Ekspor Hasil Analisis")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("""
+        *📁 File Excel yang Akan Dihasilkan:*
+        
+        *Sheet 'Data Produksi'*: Data produksi per alat tangkap
+        *Sheet 'Data Upaya'*: Data upaya penangkapan per alat tangkap  
+        *Sheet 'CPUE'*: Hasil perhitungan CPUE
+        *Sheet 'FPI'*: Hasil perhitungan Fishing Power Index
+        *Sheet 'Upaya Standar'*: Hasil standardisasi upaya
+        *Sheet 'CPUE Standar'*: Hasil CPUE standar
+        *Sheet 'Hasil MSY'*: Perbandingan model Schaefer vs Fox
+        *Sheet 'Ringkasan Analisis'*: Ringkasan lengkap hasil analisis
+        
+        *💡 Informasi:*
+        - File berisi semua data dan hasil analisis
+        - Format Excel (.xlsx) yang mudah dibaca
+        - Dapat digunakan untuk laporan lebih lanjut
+        """)
+    
+    with col2:
+        # Ekspor hasil analisis
+        export_data = ekspor_hasil_analisis()
+        if export_data is not None:
+            st.download_button(
+                label="📥 Download Hasil Analisis",
+                data=export_data,
+                file_name=f"Hasil_Analisis_CPUE_MSY_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary"
+            )
+        
+        st.markdown("""
+        *🔧 Cara Penggunaan:*
+        1. Lakukan analisis terlebih dahulu
+        2. Klik tombol download di samping
+        3. File Excel akan berisi semua hasil
+        4. Gunakan untuk dokumentasi dan laporan
+        """)
+
+# ==============================================
 # FUNGSI UTILITAS DAN KONFIGURASI
 # ==============================================
 def get_config():
@@ -1271,6 +1417,11 @@ def main():
                 proses_analisis_utama(production_inputs, effort_inputs)
         else:
             st.error("Silakan isi data terlebih dahulu.")
+    
+    # TAMPILKAN SECTION EKSPOR JIKA ADA HASIL ANALISIS
+    if st.session_state.analysis_results is not None:
+        st.markdown("---")
+        render_ekspor_section()
     
     # Footer
     st.markdown("---")
