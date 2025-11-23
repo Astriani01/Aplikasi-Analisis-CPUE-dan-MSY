@@ -1305,5 +1305,3 @@ def main():
 # PERBAIKAN: Gunakan __name__ yang benar
 if __name__ == "__main__":
     main()
-
-
