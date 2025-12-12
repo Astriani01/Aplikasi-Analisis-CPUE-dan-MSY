@@ -72,8 +72,8 @@ def create_excel_template():
     # Data contoh untuk template
     production_data = {
         'Tahun': [2018, 2019, 2020, 2021, 2022, 2023, 2024],
-        'Jaring_Insang_Tetap': [1004, 2189, 122, 8, 23, 67, 12512],
-        'Jaring_Hela_Dasar': [6105, 10145, 9338, 10438, 10879, 13174, 315],
+        'Jaring_Insang_Tetap': [1004, 2189, 122, 8, 23, 67, 0],
+        'Jaring_Hela_Dasar': [6105, 10145, 9338, 10439, 10880, 13174, 12512],
         'Bagan_Berperahu': [628, 77, 187, 377, 189, 33, 315],
         'Pancing': [811, 396, 311, 418, 21, 13, 85],
         'Jumlah': [8548, 12807, 9958, 11242, 11113, 13287, 12912]
@@ -82,7 +82,7 @@ def create_excel_template():
     effort_data = {
         'Tahun': [2018, 2019, 2020, 2021, 2022, 2023, 2024],
         'Jaring_Insang_Tetap': [6452, 9894, 10122, 11010, 18796, 15899, 16151],
-        'Jaring_Hela_Dasar': [2430, 6270, 7076, 7315, 10183, 8205],
+        'Jaring_Hela_Dasar': [2430, 6270, 7076, 7315, 10183, 8205, 7241],
         'Bagan_Berperahu': [2434, 1835, 1915, 1445, 1151, 777, 1047],
         'Pancing': [246, 139, 191, 162, 77, 78, 71],
         'Jumlah': [11562, 18138, 19304, 19932, 30207, 24959, 24510]
@@ -1460,6 +1460,7 @@ def main():
 # PERBAIKAN: Gunakan __name__ yang benar
 if __name__ == "__main__":
     main()
+
 
 
 
