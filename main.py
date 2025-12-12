@@ -887,7 +887,7 @@ def reset_data():
                 {'Tahun': 2020, 'Jaring_Insang_Tetap': 10122, 'Jaring_Hela_Dasar': 7076, 'Bagan_Berperahu': 1915, 'Pancing': 191, 'Jumlah': 19304},
                 {'Tahun': 2021, 'Jaring_Insang_Tetap': 11010, 'Jaring_Hela_Dasar': 7315, 'Bagan_Berperahu': 1445, 'Pancing': 162, 'Jumlah': 19932},
                 {'Tahun': 2022, 'Jaring_Insang_Tetap': 18796, 'Jaring_Hela_Dasar': 10183, 'Bagan_Berperahu': 1151, 'Pancing': 77, 'Jumlah': 30207},
-                {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959}
+                {'Tahun': 2023, 'Jaring_Insang_Tetap': 15899, 'Jaring_Hela_Dasar': 8205, 'Bagan_Berperahu': 777, 'Pancing': 78, 'Jumlah': 24959},
                 {'Tahun': 2024, 'Jaring_Insang_Tetap': 16151, 'Jaring_Hela_Dasar': 7241, 'Bagan_Berperahu': 1047, 'Pancing': 71, 'Jumlah': 24510}
             ]
     }
@@ -1460,4 +1460,5 @@ def main():
 # PERBAIKAN: Gunakan __name__ yang benar
 if __name__ == "__main__":
     main()
+
 
