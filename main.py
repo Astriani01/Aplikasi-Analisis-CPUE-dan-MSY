@@ -71,7 +71,7 @@ def create_excel_template():
     
     # Data contoh untuk template
     production_data = {
-        'Tahun': [2018, 2019, 2020, 2021, 2022, 2023, 2024, 0],
+        'Tahun': [2018, 2019, 2020, 2021, 2022, 2023, 2024],
         'Jaring_Insang_Tetap': [1004, 2189, 122, 8, 23, 67, 12512],
         'Jaring_Hela_Dasar': [6105, 10145, 9338, 10438, 10879, 13174, 315],
         'Bagan_Berperahu': [628, 77, 187, 377, 189, 33, 315],
@@ -1460,5 +1460,6 @@ def main():
 # PERBAIKAN: Gunakan __name__ yang benar
 if __name__ == "__main__":
     main()
+
 
 
