@@ -14,13 +14,14 @@ warnings.filterwarnings('ignore')
 # KONFIGURASI HALAMAN
 # =====================================================
 st.set_page_config(
-    page_title="Pendugaan Potensi lestari Ika Kurisi di PPN Karangantu Analisis CPUE & MSY - Multi Model",
+    page_title="Website Pendugaan Potensi Lestari Ikan Kurisi - PPN Karangantu",
     layout="wide",
     page_icon="🐟"
 )
 
-st.title("🐟 Analisis CPUE dan MSY dengan Multi-Model")
-st.caption("Satuan produksi: kilogram (kg) | Upaya: trip | CPUE: kg/trip")
+st.title("🐟 WEBSITE PENDUGAAN POTENSI LESTARI IKAN KURISI (Nemipterus spp)")
+st.subheader("📍 Pelabuhan Perikanan Nusantara (PPN) Karangantu, Banten")
+st.caption("Analisis CPUE, MSY (JTB), dan Rekomendasi Pengelolaan | Satuan: Produksi (kg), Upaya (trip), CPUE (kg/trip)")
 
 # =====================================================
 # INISIALISASI SESSION STATE
@@ -49,7 +50,6 @@ def initialize_session_state():
 
     if 'data_tables' not in st.session_state:
         st.session_state.data_tables = {
-
             # =============================
             # DATA PRODUKSI (kg)
             # =============================
@@ -62,7 +62,6 @@ def initialize_session_state():
                 {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287},
                 {'Tahun': 2024, 'Jaring_Insang_Tetap': 0, 'Jaring_Hela_Dasar': 12512, 'Bagan_Berperahu': 315, 'Pancing': 85, 'Jumlah': 12913}
             ],
-
             # =============================
             # DATA UPAYA (trip)
             # =============================
@@ -132,7 +131,6 @@ def create_excel_template():
 # =====================================================
 # TAMPILAN TEMPLATE
 # =====================================================
-
 def render_template_section():
     st.header("📋 Template Data Excel")
 
@@ -574,7 +572,7 @@ def buat_grafik_produksi_schaefer(ax, effort_data, production_data, model_result
     ax.grid(True, alpha=0.3)
     
     # Anotasi MSY
-    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} ton', 
+    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} kg', 
                 xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*0.9),
                 arrowprops=dict(arrowstyle='->', color='green'))
 
@@ -604,7 +602,7 @@ def buat_grafik_fox(ax, effort_data, production_data, model_results):
     ax.grid(True, alpha=0.3)
     
     # Anotasi MSY
-    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} ton', 
+    ax.annotate(f'MSY\nF={msy_x:.1f}\nC={msy_y:.1f} kg', 
                 xy=(msy_x, msy_y), xytext=(msy_x*1.1, msy_y*0.9),
                 arrowprops=dict(arrowstyle='->', color='green'))
 
@@ -707,7 +705,7 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
         for model_name, results in successful_models.items():
             comparison_data.append({
                 'Model': model_name,
-                'C_MSY (ton)': f"{results['C_MSY']:,.1f}",
+                'MSY/JTB (kg)': f"{results['C_MSY']:,.1f}",
                 'F_MSY': f"{results['F_MSY']:,.1f}",
                 'U_MSY': f"{results['U_MSY']:.3f}",
                 'R²': f"{results['r_squared']:.3f}",
@@ -717,10 +715,282 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
         st.dataframe(pd.DataFrame(comparison_data), use_container_width=True)
 
 # ==============================================
-# FUNGSI EKSPOR HASIL ANALISIS - DIPERBAIKI
+# ANALISIS STATUS STOK DAN REKOMENDASI - BARU
+# ==============================================
+def analisis_status_stok(msy_results, production_values, effort_values, years):
+    """Analisis status stok berdasarkan hasil MSY"""
+    successful_models = {k: v for k, v in msy_results.items() if v and v['success']}
+    if not successful_models:
+        return None
+    
+    # Pilih model terbaik berdasarkan R² tertinggi
+    best_model_name, best_model = max(successful_models.items(), key=lambda x: x[1]['r_squared'])
+    
+    # Data terkini
+    current_year = years[-1] if years else None
+    current_production = production_values[-1] if len(production_values) > 0 else 0
+    current_effort = effort_values[-1] if len(effort_values) > 0 else 0
+    
+    # Parameter MSY/JTB
+    jtb_value = best_model['C_MSY']  # MSY = JTB
+    f_msy_value = best_model['F_MSY']
+    
+    # Analisis status berdasarkan ratio produksi
+    production_ratio = (current_production / jtb_value) * 100 if jtb_value > 0 else 0
+    
+    if production_ratio <= 80:
+        status_stok = "UNDERFISHING"
+        status_color = "green"
+        status_icon = "🟢"
+        kategori = "Stok belum tereksploitasi optimal"
+        rekomendasi = "Tingkatkan upaya penangkapan secara bertahap hingga mencapai F_MSY"
+    elif 80 < production_ratio <= 100:
+        status_stok = "FULLY EXPLOITED"
+        status_color = "orange"
+        status_icon = "🟡"
+        kategori = "Stok sudah dieksploitasi optimal"
+        rekomendasi = "Pertahankan upaya penangkapan pada level F_MSY"
+    else:
+        status_stok = "OVERFISHING"
+        status_color = "red"
+        status_icon = "🔴"
+        kategori = "Stok mengalami tekanan berlebih"
+        rekomendasi = "Kurangi upaya penangkapan segera"
+    
+    # Analisis trend
+    if len(production_values) >= 3:
+        trend = np.polyfit(range(len(production_values[-3:])), production_values[-3:], 1)[0]
+        if trend > 0:
+            trend_status = "📈 Meningkat"
+            trend_direction = "positif"
+        elif trend < 0:
+            trend_status = "📉 Menurun"
+            trend_direction = "negatif"
+        else:
+            trend_status = "➡ Stabil"
+            trend_direction = "stabil"
+    else:
+        trend_status = "📊 Data tidak cukup"
+        trend_direction = "tidak diketahui"
+    
+    # Hitung rekomendasi kuantitatif
+    if status_stok == "OVERFISHING":
+        target_pengurangan = current_effort - f_msy_value
+        persentase_pengurangan = (target_pengurangan / current_effort * 100) if current_effort > 0 else 0
+        aksi_khusus = f"Kurangi {target_pengurangan:,.0f} trip ({persentase_pengurangan:.1f}%)"
+    elif status_stok == "UNDERFISHING":
+        target_peningkatan = f_msy_value - current_effort
+        persentase_peningkatan = (target_peningkatan / current_effort * 100) if current_effort > 0 else 0
+        aksi_khusus = f"Tingkatkan {target_peningkatan:,.0f} trip ({persentase_peningkatan:.1f}%)"
+    else:
+        aksi_khusus = "Pertahankan status saat ini"
+    
+    return {
+        'best_model': best_model_name,
+        'current_year': current_year,
+        'current_production': current_production,
+        'current_effort': current_effort,
+        'msy': best_model['C_MSY'],
+        'f_msy': best_model['F_MSY'],
+        'u_msy': best_model['U_MSY'],
+        'jtb': jtb_value,
+        'production_ratio': production_ratio,
+        'status_stok': status_stok,
+        'status_color': status_color,
+        'status_icon': status_icon,
+        'kategori': kategori,
+        'rekomendasi': rekomendasi,
+        'trend_status': trend_status,
+        'trend_direction': trend_direction,
+        'aksi_khusus': aksi_khusus,
+        'tahun_data': years
+    }
+
+def render_rekomendasi(recommendations, production_data, years):
+    """Render rekomendasi pengelolaan dan JTB"""
+    st.header("🎯 REKOMENDASI PENGELOLAAN DAN JTB")
+    
+    # Kartu Status Utama
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"### {recommendations['status_icon']} {recommendations['status_stok']}")
+        st.caption(recommendations['kategori'])
+    
+    with col2:
+        st.metric(
+            "JTB (Jumlah Tangkapan yang Diperbolehkan)", 
+            f"{recommendations['jtb']:,.1f} kg",
+            delta=f"{recommendations['production_ratio']:.1f}% dari JTB"
+        )
+    
+    with col3:
+        st.metric("Upaya Optimal (F_MSY)", f"{recommendations['f_msy']:,.1f} trip")
+    
+    with col4:
+        st.metric("Trend Produksi", recommendations['trend_status'])
+    
+    # Grafik Produksi vs JTB
+    st.subheader("📈 PERBANDINGAN PRODUKSI DAN JTB")
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    production_values = [d['Jumlah'] for d in production_data]
+    
+    ax.plot(years, production_values, 'bo-', linewidth=2, markersize=8, label='Produksi Aktual')
+    ax.axhline(y=recommendations['msy'], color='red', linestyle='--', linewidth=2, label='JTB (MSY)')
+    
+    # Warna area berdasarkan status
+    if recommendations['status_stok'] == "OVERFISHING":
+        ax.fill_between(years, recommendations['msy'], max(production_values + [recommendations['msy']]), 
+                       color='red', alpha=0.2, label='Area Overfishing')
+    elif recommendations['status_stok'] == "UNDERFISHING":
+        ax.fill_between(years, 0, recommendations['msy'], 
+                       color='green', alpha=0.2, label='Area Underfishing')
+    else:
+        ax.fill_between(years, 0.9*recommendations['msy'], 1.1*recommendations['msy'], 
+                       color='orange', alpha=0.2, label='Area Optimal')
+    
+    ax.set_xlabel('Tahun')
+    ax.set_ylabel('Produksi (kg)')
+    ax.set_title('Produksi vs JTB (Jumlah Tangkapan yang Diperbolehkan)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    st.pyplot(fig)
+    
+    # Rekomendasi Detail
+    st.subheader("📋 REKOMENDASI PENGELOLAAN")
+    
+    st.info(f"**{recommendations['rekomendasi']}**")
+    st.write(f"**Aksi Khusus:** {recommendations['aksi_khusus']}")
+    
+    # Rencana Aksi Berdasarkan Status
+    st.subheader("🎯 RENCANA AKSI BERDASARKAN STATUS")
+    
+    if recommendations['status_stok'] == "OVERFISHING":
+        st.error("""
+        **🔴 RENCANA AKSI OVERFISHING:**
+        
+        **1. PENURUNAN SEGERA (1-3 bulan):**
+        - Turunkan upaya penangkapan sesuai rekomendasi
+        - Implementasi sistem kuota ketat berdasarkan JTB
+        - Batasi alat tangkap yang tidak selektif
+        
+        **2. MONITORING INTENSIF (3-12 bulan):**
+        - Pemantauan CPUE bulanan
+        - Early warning system untuk stok kritis
+        - Patroli pengawasan intensif
+        
+        **3. REHABILITASI JANGKA MENENGAH (1-2 tahun):**
+        - Program restocking jika diperlukan
+        - Perlindungan area spawning ground
+        - Revisi peraturan alat tangkap
+        """)
+    
+    elif recommendations['status_stok'] == "FULLY EXPLOITED":
+        st.warning("""
+        **🟡 RENCANA AKSI FULLY EXPLOITED:**
+        
+        **1. PEMELIHARAAN STATUS (1-3 bulan):**
+        - Pertahankan upaya pada level F_MSY
+        - Sistem kuota berbasis JTB
+        - Optimalisasi alat tangkap
+        
+        **2. MONITORING RUTIN (3-12 bulan):**
+        - Pemantauan stok triwulan
+        - Sistem deteksi dini perubahan stok
+        - Database produksi real-time
+        
+        **3. OPTIMASI BERKELANJUTAN (1-2 tahun):**
+        - Perbaikan alat tangkap lebih selektif
+        - Peningkatan nilai tambah produk
+        - Sertifikasi keberlanjutan
+        """)
+    
+    else:  # UNDERFISHING
+        st.success("""
+        **🟢 RENCANA AKSI UNDERFISHING:**
+        
+        **1. PENINGKATAN BERTAHAP (1-3 bulan):**
+        - Tingkatkan upaya menuju F_MSY
+        - Roadmap peningkatan produksi
+        - Efisiensi operasi penangkapan
+        
+        **2. OPTIMASI EFISIENSI (3-12 bulan):**
+        - Peningkatan CPUE melalui pelatihan
+        - Perbaikan teknologi alat tangkap
+        - Manajemen trip yang efektif
+        
+        **3. EKSPANSI BERKELANJUTAN (1-2 tahun):**
+        - Diversifikasi area penangkapan
+        - Pengembangan pasar produk
+        - Peningkatan kapasitas nelayan
+        """)
+    
+    # Tabel Parameter Pengelolaan
+    st.subheader("📊 PARAMETER PENGELOLAAN")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("##### Parameter Kunci")
+        param_data = {
+            'Parameter': [
+                'JTB (MSY)',
+                'F_MSY (Upaya Optimal)',
+                'U_MSY (CPUE Optimal)',
+                'Produksi Terkini',
+                'Upaya Terkini',
+                'CPUE Terkini'
+            ],
+            'Nilai': [
+                f"{recommendations['jtb']:,.1f} kg",
+                f"{recommendations['f_msy']:,.1f} trip",
+                f"{recommendations['u_msy']:.3f} kg/trip",
+                f"{recommendations['current_production']:,.1f} kg",
+                f"{recommendations['current_effort']:,.1f} trip",
+                f"{recommendations['current_production']/recommendations['current_effort']:.3f} kg/trip" if recommendations['current_effort'] > 0 else "0 kg/trip"
+            ]
+        }
+        st.dataframe(pd.DataFrame(param_data), use_container_width=True)
+    
+    with col2:
+        st.markdown("##### Analisis Status")
+        analisis_data = {
+            'Analisis': [
+                'Status Stok',
+                'Rasio Produksi/JTB',
+                'Trend Produksi',
+                'Model Terbaik',
+                'Tahun Analisis',
+                'Rekomendasi Utama'
+            ],
+            'Hasil': [
+                recommendations['status_stok'],
+                f"{recommendations['production_ratio']:.1f}%",
+                recommendations['trend_status'],
+                recommendations['best_model'],
+                f"{min(years)}-{max(years)}",
+                "Lihat rencana aksi"
+            ]
+        }
+        st.dataframe(pd.DataFrame(analisis_data), use_container_width=True)
+    
+    # Catatan Penting
+    st.info("""
+    **💡 CATATAN PENTING:**
+    1. **JTB (Jumlah Tangkapan yang Diperbolehkan)** adalah batas maksimal tangkapan yang dapat diambil tanpa mengancam keberlanjutan stok
+    2. Rekomendasi ini berdasarkan analisis ilmiah model **{}**
+    3. Implementasi harus disesuaikan dengan kondisi lapangan dan regulasi setempat
+    4. Monitoring berkala diperlukan untuk evaluasi dan penyesuaian
+    5. Partisipasi stakeholder (nelayan, pengusaha, pemerintah) sangat penting untuk keberhasilan
+    """.format(recommendations['best_model']))
+
+# ==============================================
+# FUNGSI EKSPOR HASIL ANALISIS - DIPERBAIKI DENGAN REKOMENDASI
 # ==============================================
 def ekspor_hasil_analisis():
-    """Ekspor hasil analisis ke file Excel"""
+    """Ekspor hasil analisis ke file Excel termasuk rekomendasi"""
     if st.session_state.analysis_results is None:
         st.error("❌ Tidak ada hasil analisis untuk diekspor. Silakan lakukan analisis terlebih dahulu.")
         return None
@@ -731,11 +1001,11 @@ def ekspor_hasil_analisis():
         # Buat file Excel dalam memory
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Sheet Data Dasar - DIPERBAIKI: Tanpa karakter khusus
+            # Sheet Data Dasar
             results['df_production'].to_excel(writer, sheet_name='Data Produksi', index=False)
             results['df_effort'].to_excel(writer, sheet_name='Data Upaya', index=False)
-            results['df_cpue'].to_excel(writer, sheet_name='CPUE Data', index=False)  # Diubah
-            results['df_fpi'].to_excel(writer, sheet_name='FPI Data', index=False)    # Diubah
+            results['df_cpue'].to_excel(writer, sheet_name='CPUE Data', index=False)
+            results['df_fpi'].to_excel(writer, sheet_name='FPI Data', index=False)
             results['df_standard_effort'].to_excel(writer, sheet_name='Upaya Standar', index=False)
             results['df_standard_cpue'].to_excel(writer, sheet_name='CPUE Standar', index=False)
             
@@ -745,7 +1015,7 @@ def ekspor_hasil_analisis():
                 if model_results and model_results['success']:
                     msy_data.append({
                         'Model': model_name,
-                        'C_MSY (ton)': model_results['C_MSY'],
+                        'JTB (kg)': model_results['C_MSY'],
                         'F_MSY': model_results['F_MSY'],
                         'U_MSY': model_results['U_MSY'],
                         'R²': model_results['r_squared'],
@@ -755,7 +1025,7 @@ def ekspor_hasil_analisis():
                 else:
                     msy_data.append({
                         'Model': model_name,
-                        'C_MSY (ton)': '-',
+                        'JTB (kg)': '-',
                         'F_MSY': '-',
                         'U_MSY': '-',
                         'R²': '-',
@@ -766,7 +1036,77 @@ def ekspor_hasil_analisis():
             df_msy = pd.DataFrame(msy_data)
             df_msy.to_excel(writer, sheet_name='Hasil MSY', index=False)
             
-            # Sheet Ringkasan
+            # Sheet Rekomendasi (jika ada)
+            if 'recommendations' in results:
+                rec = results['recommendations']
+                
+                # Sheet Ringkasan Rekomendasi
+                summary_data = pd.DataFrame({
+                    'Parameter': [
+                        'Tahun Analisis', 'Status Stok', 'JTB (kg)', 'F_MSY', 'U_MSY',
+                        'Produksi Terkini (kg)', 'Upaya Terkini (trip)', 
+                        'Rasio Produksi/JTB (%)', 'Trend Produksi', 'Model Terbaik', 'Rekomendasi Utama'
+                    ],
+                    'Nilai': [
+                        rec['current_year'], rec['status_stok'], f"{rec['jtb']:,.1f}", 
+                        f"{rec['f_msy']:,.1f}", f"{rec['u_msy']:.3f}",
+                        f"{rec['current_production']:,.1f}", f"{rec['current_effort']:,.1f}",
+                        f"{rec['production_ratio']:.1f}", rec['trend_status'], rec['best_model'], rec['rekomendasi']
+                    ]
+                })
+                summary_data.to_excel(writer, sheet_name='Rekomendasi', index=False)
+                
+                # Sheet Rencana Aksi Detail
+                if rec['status_stok'] == "OVERFISHING":
+                    action_data = pd.DataFrame({
+                        'Prioritas': ['Segera (1-3 bulan)', 'Jangka Pendek (3-12 bulan)', 'Jangka Menengah (1-2 tahun)', 'Jangka Panjang (2+ tahun)'],
+                        'Aksi': [
+                            'Pengurangan upaya penangkapan',
+                            'Implementasi sistem kuota',
+                            'Restorasi habitat dan stok',
+                            'Kelembagaan berkelanjutan'
+                        ],
+                        'Target': [
+                            '-30% dari level saat ini',
+                            f'100% compliance kuota {rec["jtb"]:,.0f} kg',
+                            'Peningkatan 20% stok',
+                            'Sertifikasi keberlanjutan'
+                        ]
+                    })
+                elif rec['status_stok'] == "FULLY EXPLOITED":
+                    action_data = pd.DataFrame({
+                        'Prioritas': ['Segera (1-3 bulan)', 'Jangka Pendek (3-12 bulan)', 'Jangka Menengah (1-2 tahun)', 'Jangka Panjang (2+ tahun)'],
+                        'Aksi': [
+                            'Pemeliharaan upaya optimal',
+                            'Monitoring intensif',
+                            'Pengembangan early warning',
+                            'Optimalisasi berkelanjutan'
+                        ],
+                        'Target': [
+                            f'Pertahankan {rec["f_msy"]:,.0f} trip',
+                            'Real-time monitoring system',
+                            'Sistem deteksi dini',
+                            'Sertifikasi MSC'
+                        ]
+                    })
+                else:  # UNDERFISHING
+                    action_data = pd.DataFrame({
+                        'Prioritas': ['Segera (1-3 bulan)', 'Jangka Pendek (3-12 bulan)', 'Jangka Menengah (1-2 tahun)', 'Jangka Panjang (2+ tahun)'],
+                        'Aksi': [
+                            'Peningkatan bertahap',
+                            'Optimasi efisiensi',
+                            'Ekspansi berkelanjutan',
+                            'Pengembangan pasar'
+                        ],
+                        'Target': [
+                            'Roadmap peningkatan',
+                            '+20% efisiensi alat tangkap',
+                            '3 area baru berkelanjutan',
+                            'Ekspor produk premium'
+                        ]
+                    })
+                action_data.to_excel(writer, sheet_name='Rencana Aksi', index=False)
+            
             workbook = writer.book
             worksheet_summary = workbook.add_worksheet('Ringkasan Analisis')
             
@@ -774,7 +1114,7 @@ def ekspor_hasil_analisis():
             format_header = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC'})
             
             # Tulis ringkasan
-            worksheet_summary.write('A1', 'RINGKASAN HASIL ANALISIS CPUE & MSY', format_header)
+            worksheet_summary.write('A1', 'RINGKASAN HASIL ANALISIS CPUE, MSY DAN REKOMENDASI', format_header)
             worksheet_summary.write('A3', 'Parameter', format_header)
             worksheet_summary.write('B3', 'Nilai', format_header)
             
@@ -787,8 +1127,8 @@ def ekspor_hasil_analisis():
                 
                 summary_data = [
                     ('Model Terbaik', best_model_name),
-                    ('Maximum Sustainable Yield (MSY)', f"{best_model_results['C_MSY']:,.1f} ton"),
-                    ('Optimum Fishing Effort (F_MSY)', f"{best_model_results['F_MSY']:,.1f}"),
+                    ('JTB (Jumlah Tangkapan yang Diperbolehkan)', f"{best_model_results['C_MSY']:,.1f} kg"),
+                    ('Upaya Optimal (F_MSY)', f"{best_model_results['F_MSY']:,.1f}"),
                     ('CPUE Optimum (U_MSY)', f"{best_model_results['U_MSY']:.3f}"),
                     ('Koefisien Determinasi (R²)', f"{best_model_results['r_squared']:.3f}"),
                     ('Jumlah Tahun Data', len(results['df_production'])),
@@ -797,12 +1137,18 @@ def ekspor_hasil_analisis():
                     ('Rentang Tahun', f"{results['df_production']['Tahun'].min()} - {results['df_production']['Tahun'].max()}")
                 ]
                 
+                if 'recommendations' in results:
+                    rec = results['recommendations']
+                    summary_data.append(('Status Stok', rec['status_stok']))
+                    summary_data.append(('Rasio Produksi/JTB', f"{rec['production_ratio']:.1f}%"))
+                    summary_data.append(('Trend Produksi', rec['trend_status']))
+                
                 for i, (param, value) in enumerate(summary_data, start=4):
                     worksheet_summary.write(f'A{i}', param)
                     worksheet_summary.write(f'B{i}', value)
             
-            worksheet_summary.set_column('A:A', 25)
-            worksheet_summary.set_column('B:B', 20)
+            worksheet_summary.set_column('A:A', 35)
+            worksheet_summary.set_column('B:B', 35)
         
         processed_data = output.getvalue()
         return processed_data
@@ -832,12 +1178,15 @@ def render_ekspor_section():
         *Sheet 'Upaya Standar'*: Hasil standardisasi upaya
         *Sheet 'CPUE Standar'*: Hasil CPUE standar
         *Sheet 'Hasil MSY'*: Perbandingan model Schaefer vs Fox
+        *Sheet 'Rekomendasi'*: **Rekomendasi pengelolaan dan JTB**
+        *Sheet 'Rencana Aksi'*: **Rencana aksi berdasarkan status stok**
         *Sheet 'Ringkasan Analisis'*: Ringkasan lengkap hasil analisis
         
         *💡 Informasi:*
         - File berisi semua data dan hasil analisis
+        - **Termasuk rekomendasi pengelolaan berbasis JTB**
         - Format Excel (.xlsx) yang mudah dibaca
-        - Dapat digunakan untuk laporan lebih lanjut
+        - Dapat digunakan untuk laporan dan pengambilan keputusan
         """)
     
     with col2:
@@ -845,9 +1194,9 @@ def render_ekspor_section():
         export_data = ekspor_hasil_analisis()
         if export_data is not None:
             st.download_button(
-                label="📥 Download Hasil Analisis",
+                label="📥 Download Hasil Analisis + Rekomendasi",
                 data=export_data,
-                file_name=f"Hasil_Analisis_CPUE_MSY_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                file_name=f"Hasil_Analisis_Rekomendasi_IKAN_KURISI_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 type="primary"
@@ -857,8 +1206,8 @@ def render_ekspor_section():
         *🔧 Cara Penggunaan:*
         1. Lakukan analisis terlebih dahulu
         2. Klik tombol download di samping
-        3. File Excel akan berisi semua hasil
-        4. Gunakan untuk dokumentasi dan laporan
+        3. File Excel akan berisi semua hasil **termasuk rekomendasi**
+        4. Gunakan untuk dokumentasi, laporan, dan pengambilan keputusan
         """)
 
 # ==============================================
@@ -951,7 +1300,7 @@ def update_data_structure():
 # ==============================================
 def render_sidebar():
     """Render sidebar dengan fitur upload"""
-    st.sidebar.header("⚙ Konfigurasi Analisis")
+    st.sidebar.header("⚙ KONFIGURASI ANALISIS")
     
     # Pilihan Model MSY - Hanya Schaefer dan Fox
     st.sidebar.subheader("🔧 Pilih Model MSY")
@@ -1021,11 +1370,25 @@ def render_sidebar():
     # Informasi Upload
     st.sidebar.markdown("---")
     st.sidebar.info("""
-    *📝 Panduan Upload:*
-    - *Excel*: Sheet 1 = Produksi, Sheet 2 = Upaya
-    - *CSV*: File tunggal dengan data produksi
-    - *Kolom*: Tahun, [alat_tangkap1], [alat_tangkap2], ...
-    - *Template*: Download template untuk format yang benar
+    **🐟 IKAN KURISI (Nemipterus spp)**
+    
+    **📍 LOKASI:** PPN Karangantu, Banten
+    
+    **📊 SATUAN:**
+    - Produksi: kilogram (kg)
+    - Upaya: trip
+    - CPUE: kg/trip
+    - **JTB:** kg/tahun
+    
+    **🔧 MODEL ANALISIS:**
+    - Schaefer: Model linear
+    - Fox: Model eksponensial
+    
+    **🎯 OUTPUT BARU:**
+    - **JTB (Jumlah Tangkapan yang Diperbolehkan)**
+    - **Rekomendasi pengelolaan**
+    - **Status stok (Underfishing/Fully/Overfishing)**
+    - **Rencana aksi detail**
     """)
 
 # ==============================================
@@ -1046,14 +1409,14 @@ def render_manual_input():
         st.info(f"*Data terkini:* {len(current_data)} tahun ({years[0]} - {years[-1]}), {len(gears)} alat tangkap")
     
     # Input Data Produksi
-    st.subheader("🍤 Data Produksi (Ton)")
+    st.subheader("🍤 Data Produksi (kg)")
     
     headers = ["Tahun"] + display_names + ["Jumlah"]
     prod_cols = st.columns(len(headers))
     
     for i, header in enumerate(headers):
         with prod_cols[i]:
-            st.markdown(f"{header}")
+            st.markdown(f"**{header}**")
     
     production_inputs = []
     for i, year in enumerate(years):
@@ -1089,18 +1452,18 @@ def render_manual_input():
                 total_prod += prod_value
         
         with cols[-1]:
-            st.markdown(f"{total_prod:,.1f}")
+            st.markdown(f"**{total_prod:,.1f}**")
             row_data['Jumlah'] = total_prod
         
         production_inputs.append(row_data)
     
     # Input Data Upaya
-    st.subheader("🎣 Data Upaya (Trip)")
+    st.subheader("🎣 Data Upaya (trip)")
     
     effort_cols = st.columns(len(headers))
     for i, header in enumerate(headers):
         with effort_cols[i]:
-            st.markdown(f"{header}")
+            st.markdown(f"**{header}**")
     
     effort_inputs = []
     for i, year in enumerate(years):
@@ -1135,7 +1498,7 @@ def render_manual_input():
                 total_eff += eff_value
         
         with cols[-1]:
-            st.markdown(f"{total_eff:,}")
+            st.markdown(f"**{total_eff:,}**")
             row_data['Jumlah'] = total_eff
         
         effort_inputs.append(row_data)
@@ -1253,10 +1616,10 @@ def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
     return pd.DataFrame(standard_cpue_data)
 
 # ==============================================
-# PROSES ANALISIS UTAMA
+# PROSES ANALISIS UTAMA DENGAN REKOMENDASI
 # ==============================================
 def proses_analisis_utama(production_inputs, effort_inputs):
-    """Proses analisis utama dengan multi-model MSY"""
+    """Proses analisis utama dengan multi-model MSY dan rekomendasi"""
     df_production = pd.DataFrame(production_inputs)
     df_effort = pd.DataFrame(effort_inputs)
     config = get_config()
@@ -1284,7 +1647,7 @@ def proses_analisis_utama(production_inputs, effort_inputs):
         
         results_dict = bandingkan_model_msy(effort_values, cpue_values, production_values, st.session_state.selected_models)
         
-        st.write("🎨 Membuat visualisasi...")
+        st.write("📊 Menganalisis status stok dan rekomendasi...")
         
         status.update(label="✅ Analisis selesai!", state="complete", expanded=False)
     
@@ -1307,21 +1670,21 @@ def proses_analisis_utama(production_inputs, effort_inputs):
         best_model = successful_models[best_model_name]
         
         st.markdown("---")
-        st.header("📊 Hasil Analisis CPUE dan MSY")
+        st.header("📊 HASIL ANALISIS CPUE DAN MSY")
         st.info(f"*Model terbaik*: {best_model_name} (R² = {best_model['r_squared']:.3f})")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Maximum Sustainable Yield (MSY)", f"{best_model['C_MSY']:,.1f} ton")
+            st.metric("MSY/JTB", f"{best_model['C_MSY']:,.1f} kg")
         with col2:
-            st.metric("Optimum Fishing Effort (F_MSY)", f"{best_model['F_MSY']:,.1f}")
+            st.metric("F_MSY", f"{best_model['F_MSY']:,.1f} trip")
         with col3:
-            st.metric("CPUE Optimum (U_MSY)", f"{best_model['U_MSY']:.3f}")
+            st.metric("U_MSY", f"{best_model['U_MSY']:.3f} kg/trip")
         with col4:
-            st.metric("Koefisien Determinasi (R²)", f"{best_model['r_squared']:.3f}")
+            st.metric("R²", f"{best_model['r_squared']:.3f}")
         
         # Tampilkan tabel-tabel hasil
-        st.header("📋 Hasil Perhitungan")
+        st.header("📋 HASIL PERHITUNGAN")
         
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["🍤 Produksi", "🎣 Upaya", "📊 CPUE", "🎯 FPI", "⚖ Upaya Standar"])
         
@@ -1340,8 +1703,18 @@ def proses_analisis_utama(production_inputs, effort_inputs):
         with tab5:
             st.dataframe(df_standard_effort.style.format({col: "{:,.1f}" for col in df_standard_effort.columns if col != 'Tahun'}), use_container_width=True)
         
+        # Analisis Status Stok dan Rekomendasi
+        st.markdown("---")
+        years = df_production['Tahun'].tolist()
+        recommendations = analisis_status_stok(results_dict, production_values, effort_values, years)
+        
+        if recommendations:
+            render_rekomendasi(recommendations, production_inputs, years)
+            # Simpan rekomendasi ke session state untuk ekspor
+            st.session_state.analysis_results['recommendations'] = recommendations
+        
         # Visualisasi
-        st.header("📈 Visualisasi Hasil")
+        st.header("📈 VISUALISASI HASIL")
         
         # Panggil fungsi grafik MSY yang baru
         render_grafik_msy_lengkap(effort_values, cpue_values, production_values, results_dict)
@@ -1366,18 +1739,20 @@ def buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_sta
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
         
         # Plot produksi
-        ax1.plot(df_production['Tahun'], df_production['Jumlah'], 'o-', linewidth=2, markersize=8, color='blue')
+        ax1.plot(df_production['Tahun'], df_production['Jumlah'], 'bo-', linewidth=2, markersize=8, label='Produksi')
         ax1.set_title('Total Produksi per Tahun')
         ax1.set_xlabel('Tahun')
-        ax1.set_ylabel('Produksi (Ton)')
+        ax1.set_ylabel('Produksi (kg)')
         ax1.grid(True, alpha=0.3)
+        ax1.legend()
         
         # Plot upaya
-        ax2.plot(df_effort['Tahun'], df_effort['Jumlah'], 's-', linewidth=2, markersize=8, color='red')
+        ax2.plot(df_effort['Tahun'], df_effort['Jumlah'], 'rs-', linewidth=2, markersize=8, label='Upaya')
         ax2.set_title('Total Upaya per Tahun')
         ax2.set_xlabel('Tahun')
-        ax2.set_ylabel('Upaya (Trip)')
+        ax2.set_ylabel('Upaya (trip)')
         ax2.grid(True, alpha=0.3)
+        ax2.legend()
         
         plt.tight_layout()
         st.pyplot(fig)
@@ -1390,7 +1765,7 @@ def buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_sta
             ax1.plot(df_cpue['Tahun'], df_cpue[gear], 'o-', label=display_names[i], markersize=4)
         ax1.set_title('CPUE per Alat Tangkap')
         ax1.set_xlabel('Tahun')
-        ax1.set_ylabel('CPUE (Ton/Trip)')
+        ax1.set_ylabel('CPUE (kg/trip)')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
@@ -1410,7 +1785,7 @@ def buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_sta
 # APLIKASI UTAMA
 # ==============================================
 def main():
-    """Aplikasi utama dengan model Schaefer dan Fox saja"""
+    """Aplikasi utama dengan model Schaefer dan Fox serta rekomendasi"""
     initialize_session_state()
     
     # Render sidebar
@@ -1420,7 +1795,7 @@ def main():
     production_inputs, effort_inputs = render_data_input()
     
     # Tombol analisis
-    if st.button("🚀 Lakukan Analisis CPUE dan MSY", type="primary", use_container_width=True, key="analyze_button"):
+    if st.button("🚀 LAKUKAN ANALISIS CPUE, MSY (JTB), DAN REKOMENDASI", type="primary", use_container_width=True, key="analyze_button"):
         if st.session_state.data_tables['production'] and st.session_state.data_tables['effort']:
             if not st.session_state.selected_models:
                 st.error("Pilih minimal satu model MSY untuk dianalisis.")
@@ -1437,33 +1812,28 @@ def main():
     # Footer
     st.markdown("---")
     st.markdown("""
-    *📚 Model MSY yang Tersedia:*
-    - *Schaefer*: Model linear sederhana - CPUE vs Upaya
-    - *Fox*: Model eksponensial - Produksi vs Upaya  
+    **📚 WEBSITE PENDUGAAN POTENSI LESTARI IKAN KURISI DENGAN REKOMENDASI JTB**
     
-    *📈 Grafik MSY yang Dihasilkan:*
-    - Grafik individual setiap model
-    - Grafik produksi vs upaya
-    - Perbandingan model Schaefer vs Fox
-    - Titik MSY dan kurva produksi
-    
-    *🔍 Analisis yang Dilakukan:*
+    **🔬 METODE ANALISIS:**
     - Perhitungan CPUE (Catch Per Unit Effort)
-    - Standardisasi upaya penangkapan dengan FPI
-    - Estimasi MSY dengan dua model (Schaefer & Fox)
-    - Analisis tingkat pemanfaatan sumber daya
+    - Standardisasi upaya dengan FPI (Fishing Power Index)
+    - Pendugaan MSY/JTB dengan model Schaefer dan Fox
+    - **Analisis status stok dan rekomendasi pengelolaan**
     
-    *📤 Fitur Upload:*
-    - Support file Excel (.xlsx, .xls) dan CSV (.csv)
-    - *Template Excel* tersedia untuk diunduh
-    - *Excel*: Sheet 1 = Produksi, Sheet 2 = Upaya
-    - Konversi otomatis ke format aplikasi
+    **🎯 TUJUAN:**
+    - **Menentukan JTB (Jumlah Tangkapan yang Diperbolehkan)**
+    - Mendukung implementasi kebijakan penangkapan terukur (PP No. 11/2023)
+    - Menyediakan rekomendasi pengelolaan berbasis data ilmiah
+    - Membantu pengambilan keputusan untuk keberlanjutan perikanan
     
-    Aplikasi akan membandingkan kedua model dan merekomendasikan yang terbaik.
+    **📊 DATA DEFAULT:** Data produksi ikan kurisi PPN Karangantu tahun 2018-2024
     
-    Dikembangkan untuk Analisis Perikanan Berkelanjutan | © 2025
+    **⚠️ PERHATIAN:** JTB merupakan batas maksimal tangkapan untuk menjaga keberlanjutan stok
+    
+    Dikembangkan untuk mendukung pengelolaan perikanan berkelanjutan | © 2025
     """)
 
 # PERBAIKAN: Gunakan __name__ yang benar
 if __name__ == "__main__":
     main()
+
