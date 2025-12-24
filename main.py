@@ -7,8 +7,19 @@ from scipy import stats
 from scipy.optimize import curve_fit
 import warnings
 from matplotlib.ticker import FuncFormatter
+import base64
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+import tempfile
+import matplotlib
 
 warnings.filterwarnings('ignore')
+matplotlib.use('Agg')
 
 # =====================================================
 # KONFIGURASI HALAMAN
@@ -50,9 +61,6 @@ def initialize_session_state():
 
     if 'data_tables' not in st.session_state:
         st.session_state.data_tables = {
-            # =============================
-            # DATA PRODUKSI (kg)
-            # =============================
             'production': [
                 {'Tahun': 2018, 'Jaring_Insang_Tetap': 1004, 'Jaring_Hela_Dasar': 6105, 'Bagan_Berperahu': 628, 'Pancing': 811, 'Jumlah': 8548},
                 {'Tahun': 2019, 'Jaring_Insang_Tetap': 2189, 'Jaring_Hela_Dasar': 10145, 'Bagan_Berperahu': 77, 'Pancing': 396, 'Jumlah': 12807},
@@ -62,9 +70,6 @@ def initialize_session_state():
                 {'Tahun': 2023, 'Jaring_Insang_Tetap': 67, 'Jaring_Hela_Dasar': 13174, 'Bagan_Berperahu': 33, 'Pancing': 13, 'Jumlah': 13287},
                 {'Tahun': 2024, 'Jaring_Insang_Tetap': 0, 'Jaring_Hela_Dasar': 12512, 'Bagan_Berperahu': 315, 'Pancing': 85, 'Jumlah': 12913}
             ],
-            # =============================
-            # DATA UPAYA (trip)
-            # =============================
             'effort': [
                 {'Tahun': 2018, 'Jaring_Insang_Tetap': 6452, 'Jaring_Hela_Dasar': 2430, 'Bagan_Berperahu': 2434, 'Pancing': 246, 'Jumlah': 11562},
                 {'Tahun': 2019, 'Jaring_Insang_Tetap': 9894, 'Jaring_Hela_Dasar': 6270, 'Bagan_Berperahu': 1835, 'Pancing': 139, 'Jumlah': 18138},
@@ -84,7 +89,6 @@ def initialize_session_state():
 
     if 'uploaded_data' not in st.session_state:
         st.session_state.uploaded_data = None
-
 
 # =====================================================
 # TEMPLATE EXCEL
@@ -127,7 +131,6 @@ def create_excel_template():
 
     return output.getvalue()
 
-
 # =====================================================
 # TAMPILAN TEMPLATE
 # =====================================================
@@ -165,7 +168,6 @@ def render_template_section():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-
 
 # ==============================================
 # FUNGSI UPLOAD DATA
@@ -715,7 +717,7 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
         st.dataframe(pd.DataFrame(comparison_data), use_container_width=True)
 
 # ==============================================
-# ANALISIS STATUS STOK DAN REKOMENDASI - BARU
+# ANALISIS STATUS STOK DAN REKOMENDASI
 # ==============================================
 def analisis_status_stok(msy_results, production_values, effort_values, years):
     """Analisis status stok berdasarkan hasil MSY"""
@@ -987,7 +989,103 @@ def render_rekomendasi(recommendations, production_data, years):
     """.format(recommendations['best_model']))
 
 # ==============================================
-# FUNGSI EKSPOR HASIL ANALISIS - DIPERBAIKI DENGAN REKOMENDASI
+# FUNGSI PERHITUNGAN CPUE, FPI, dll. - DIPERBAIKI
+# ==============================================
+def hitung_cpue(produksi_df, upaya_df, gears):
+    """Hitung CPUE untuk setiap alat tangkap"""
+    cpue_data = []
+    years = produksi_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        for gear in gears:
+            prod = produksi_df[produksi_df['Tahun'] == year][gear].values[0]
+            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
+            cpue = prod / eff if eff > 0 else 0
+            year_data[gear] = cpue
+        
+        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
+        cpue_data.append(year_data)
+    
+    return pd.DataFrame(cpue_data)
+
+def hitung_fpi_per_tahun(cpue_df, gears, standard_gear):
+    """Hitung FPI per tahun - FPI diambil dari nilai CPUE tertinggi = 1"""
+    fpi_data = []
+    years = cpue_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        
+        # Cari nilai CPUE maksimum untuk tahun ini
+        cpue_values = [cpue_df[cpue_df['Tahun'] == year][gear].values[0] for gear in gears]
+        max_cpue = max(cpue_values) if cpue_values else 1
+        
+        for gear in gears:
+            cpue_gear = cpue_df[cpue_df['Tahun'] == year][gear].values[0]
+            # FPI = CPUE gear / CPUE maksimum (sehingga nilai tertinggi = 1)
+            fpi = cpue_gear / max_cpue if max_cpue > 0 else 0
+            year_data[gear] = fpi
+        
+        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
+        fpi_data.append(year_data)
+    
+    return pd.DataFrame(fpi_data)
+
+def hitung_upaya_standar(upaya_df, fpi_df, gears):
+    """Hitung upaya standar"""
+    standard_effort_data = []
+    years = upaya_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        total_standard_effort = 0
+        
+        for gear in gears:
+            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
+            fpi = fpi_df[fpi_df['Tahun'] == year][gear].values[0]
+            standard_effort = eff * fpi
+            year_data[gear] = standard_effort
+            total_standard_effort += standard_effort
+        
+        year_data['Jumlah'] = total_standard_effort
+        standard_effort_data.append(year_data)
+    
+    return pd.DataFrame(standard_effort_data)
+
+def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
+    """Hitung CPUE standar per alat tangkap dan total - DIPERBAIKI"""
+    standard_cpue_data = []
+    years = produksi_df['Tahun'].values
+    
+    for year in years:
+        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
+        year_data = {'Tahun': clean_year}
+        
+        # Hitung CPUE standar per alat tangkap
+        for gear in gears:
+            prod = produksi_df[produksi_df['Tahun'] == year][gear].values[0]
+            std_eff = standard_effort_df[standard_effort_df['Tahun'] == year][gear].values[0]
+            cpue_standar = prod / std_eff if std_eff > 0 else 0
+            year_data[f'{gear}_Std_CPUE'] = cpue_standar
+        
+        # Hitung CPUE standar total
+        total_production = produksi_df[produksi_df['Tahun'] == year]['Jumlah'].values[0]
+        total_standard_effort = standard_effort_df[standard_effort_df['Tahun'] == year]['Jumlah'].values[0]
+        
+        cpue_standar_total = total_production / total_standard_effort if total_standard_effort > 0 else 0
+        year_data['CPUE_Standar_Total'] = cpue_standar_total
+        year_data['Ln_CPUE'] = np.log(cpue_standar_total) if cpue_standar_total > 0 else 0
+        
+        standard_cpue_data.append(year_data)
+    
+    return pd.DataFrame(standard_cpue_data)
+
+# ==============================================
+# FUNGSI EKSPOR HASIL ANALISIS - DIPERBAIKI
 # ==============================================
 def ekspor_hasil_analisis():
     """Ekspor hasil analisis ke file Excel termasuk rekomendasi"""
@@ -1007,7 +1105,7 @@ def ekspor_hasil_analisis():
             results['df_cpue'].to_excel(writer, sheet_name='CPUE Data', index=False)
             results['df_fpi'].to_excel(writer, sheet_name='FPI Data', index=False)
             results['df_standard_effort'].to_excel(writer, sheet_name='Upaya Standar', index=False)
-            results['df_standard_cpue'].to_excel(writer, sheet_name='CPUE Standar', index=False)
+            results['df_standard_cpue'].to_excel(writer, sheet_name='CPUE Standar', index=False)  # DIPERBAIKI
             
             # Sheet Hasil MSY
             msy_data = []
@@ -1176,7 +1274,7 @@ def render_ekspor_section():
         *Sheet 'CPUE Data'*: Hasil perhitungan CPUE
         *Sheet 'FPI Data'*: Hasil perhitungan Fishing Power Index
         *Sheet 'Upaya Standar'*: Hasil standardisasi upaya
-        *Sheet 'CPUE Standar'*: Hasil CPUE standar
+        *Sheet 'CPUE Standar'*: **Hasil CPUE standar per alat tangkap**  ← DIPERBAIKI
         *Sheet 'Hasil MSY'*: Perbandingan model Schaefer vs Fox
         *Sheet 'Rekomendasi'*: **Rekomendasi pengelolaan dan JTB**
         *Sheet 'Rencana Aksi'*: **Rencana aksi berdasarkan status stok**
@@ -1529,211 +1627,13 @@ def render_data_input():
     return production_inputs, effort_inputs
 
 # ==============================================
-# FUNGSI PERHITUNGAN CPUE, FPI, dll.
+# PROSES ANALISIS UTAMA DENGAN REKOMENDASI - DIPERBAIKI
 # ==============================================
-def hitung_cpue(produksi_df, upaya_df, gears):
-    """Hitung CPUE untuk setiap alat tangkap"""
-    cpue_data = []
-    years = produksi_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        for gear in gears:
-            prod = produksi_df[produksi_df['Tahun'] == year][gear].values[0]
-            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
-            cpue = prod / eff if eff > 0 else 0
-            year_data[gear] = cpue
-        
-        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
-        cpue_data.append(year_data)
-    
-    return pd.DataFrame(cpue_data)
-
-def hitung_fpi_per_tahun(cpue_df, gears, standard_gear):
-    """Hitung FPI per tahun - FPI diambil dari nilai CPUE tertinggi = 1"""
-    fpi_data = []
-    years = cpue_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        
-        # Cari nilai CPUE maksimum untuk tahun ini
-        cpue_values = [cpue_df[cpue_df['Tahun'] == year][gear].values[0] for gear in gears]
-        max_cpue = max(cpue_values) if cpue_values else 1
-        
-        for gear in gears:
-            cpue_gear = cpue_df[cpue_df['Tahun'] == year][gear].values[0]
-            # FPI = CPUE gear / CPUE maksimum (sehingga nilai tertinggi = 1)
-            fpi = cpue_gear / max_cpue if max_cpue > 0 else 0
-            year_data[gear] = fpi
-        
-        year_data['Jumlah'] = sum([year_data[gear] for gear in gears])
-        fpi_data.append(year_data)
-    
-    return pd.DataFrame(fpi_data)
-
-def hitung_upaya_standar(upaya_df, fpi_df, gears):
-    """Hitung upaya standar"""
-    standard_effort_data = []
-    years = upaya_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        total_standard_effort = 0
-        
-        for gear in gears:
-            eff = upaya_df[upaya_df['Tahun'] == year][gear].values[0]
-            fpi = fpi_df[fpi_df['Tahun'] == year][gear].values[0]
-            standard_effort = eff * fpi
-            year_data[gear] = standard_effort
-            total_standard_effort += standard_effort
-        
-        year_data['Jumlah'] = total_standard_effort
-        standard_effort_data.append(year_data)
-    
-    return pd.DataFrame(standard_effort_data)
-
-def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
-    """Hitung CPUE standar"""
-    standard_cpue_data = []
-    years = produksi_df['Tahun'].values
-    
-    for year in years:
-        clean_year = int(year) if isinstance(year, float) and year.is_integer() else year
-        year_data = {'Tahun': clean_year}
-        total_production = produksi_df[produksi_df['Tahun'] == year]['Jumlah'].values[0]
-        total_standard_effort = standard_effort_df[standard_effort_df['Tahun'] == year]['Jumlah'].values[0]
-        
-        cpue_standar_total = total_production / total_standard_effort if total_standard_effort > 0 else 0
-        year_data['CPUE_Standar_Total'] = cpue_standar_total
-        year_data['Ln_CPUE'] = np.log(cpue_standar_total) if cpue_standar_total > 0 else 0
-        
-        standard_cpue_data.append(year_data)
-    
-    return pd.DataFrame(standard_cpue_data)
-
-# ==============================================
-# PROSES ANALISIS UTAMA DENGAN REKOMENDASI
-# ==============================================
-def proses_analisis_utama(production_inputs, effort_inputs):
-    """Proses analisis utama dengan multi-model MSY dan rekomendasi"""
-    df_production = pd.DataFrame(production_inputs)
-    df_effort = pd.DataFrame(effort_inputs)
-    config = get_config()
-    gears = config['gears']
-    display_names = config['display_names']
-    standard_gear = config['standard_gear']
-    
-    with st.status("🔄 Sedang menganalisis...", expanded=True) as status:
-        st.write("📈 Menghitung CPUE...")
-        df_cpue = hitung_cpue(df_production, df_effort, gears)
-        
-        st.write("🎯 Menghitung FPI...")
-        df_fpi = hitung_fpi_per_tahun(df_cpue, gears, standard_gear)
-        
-        st.write("⚖ Menghitung upaya standar...")
-        df_standard_effort = hitung_upaya_standar(df_effort, df_fpi, gears)
-        
-        st.write("📊 Menghitung CPUE standar...")
-        df_standard_cpue = hitung_cpue_standar(df_production, df_standard_effort, gears)
-        
-        st.write("🧮 Analisis MSY Multi-Model...")
-        effort_values = df_standard_effort['Jumlah'].values
-        cpue_values = df_standard_cpue['CPUE_Standar_Total'].values
-        production_values = df_production['Jumlah'].values
-        
-        results_dict = bandingkan_model_msy(effort_values, cpue_values, production_values, st.session_state.selected_models)
-        
-        st.write("📊 Menganalisis status stok dan rekomendasi...")
-        
-        status.update(label="✅ Analisis selesai!", state="complete", expanded=False)
-    
-    st.session_state.analysis_results = {
-        'df_production': df_production,
-        'df_effort': df_effort,
-        'df_cpue': df_cpue,
-        'df_fpi': df_fpi,
-        'df_standard_effort': df_standard_effort,
-        'df_standard_cpue': df_standard_cpue,
-        'msy_results': results_dict
-    }
-    
-    successful_models = {k: v for k, v in results_dict.items() if v and v['success']}
-    
-    if successful_models:
-        st.success(f"Analisis berhasil! {len(successful_models)} model valid.")
-        
-        best_model_name = max(successful_models.items(), key=lambda x: x[1]['r_squared'])[0]
-        best_model = successful_models[best_model_name]
-        
-        st.markdown("---")
-        st.header("📊 HASIL ANALISIS CPUE DAN MSY")
-        st.info(f"*Model terbaik*: {best_model_name} (R² = {best_model['r_squared']:.3f})")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("MSY/JTB", f"{best_model['C_MSY']:,.1f} kg")
-        with col2:
-            st.metric("F_MSY", f"{best_model['F_MSY']:,.1f} trip")
-        with col3:
-            st.metric("U_MSY", f"{best_model['U_MSY']:.3f} kg/trip")
-        with col4:
-            st.metric("R²", f"{best_model['r_squared']:.3f}")
-        
-        # Tampilkan tabel-tabel hasil
-        st.header("📋 HASIL PERHITUNGAN")
-        
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🍤 Produksi", "🎣 Upaya", "📊 CPUE", "🎯 FPI", "⚖ Upaya Standar"])
-        
-        with tab1:
-            st.dataframe(df_production.style.format({col: "{:,.1f}" for col in df_production.columns if col != 'Tahun'}), use_container_width=True)
-        
-        with tab2:
-            st.dataframe(df_effort.style.format({col: "{:,}" for col in df_effort.columns if col != 'Tahun'}), use_container_width=True)
-        
-        with tab3:
-            st.dataframe(df_cpue.style.format({col: "{:.3f}" for col in df_cpue.columns if col != 'Tahun'}), use_container_width=True)
-        
-        with tab4:
-            st.dataframe(df_fpi.style.format({col: "{:.3f}" for col in df_fpi.columns if col != 'Tahun'}), use_container_width=True)
-        
-        with tab5:
-            st.dataframe(df_standard_effort.style.format({col: "{:,.1f}" for col in df_standard_effort.columns if col != 'Tahun'}), use_container_width=True)
-        
-        # Analisis Status Stok dan Rekomendasi
-        st.markdown("---")
-        years = df_production['Tahun'].tolist()
-        recommendations = analisis_status_stok(results_dict, production_values, effort_values, years)
-        
-        if recommendations:
-            render_rekomendasi(recommendations, production_inputs, years)
-            # Simpan rekomendasi ke session state untuk ekspor
-            st.session_state.analysis_results['recommendations'] = recommendations
-        
-        # Visualisasi
-        st.header("📈 VISUALISASI HASIL")
-        
-        # Panggil fungsi grafik MSY yang baru
-        render_grafik_msy_lengkap(effort_values, cpue_values, production_values, results_dict)
-        
-        # Visualisasi sederhana lainnya
-        buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_standard_effort, df_standard_cpue, results_dict, gears, display_names)
-        
-    else:
-        st.error("Analisis MSY gagal pada semua model. Periksa data input.")
-        
-        for model_name, results in results_dict.items():
-            if results and 'error' in results:
-                st.error(f"{model_name}: {results['error']}")
-
 def buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_standard_effort, df_standard_cpue, results_dict, gears, display_names):
     """Buat visualisasi sederhana untuk hasil analisis"""
     
     # Tab untuk visualisasi tambahan
-    tab1, tab2 = st.tabs(["📈 Trend Produksi & Upaya", "🎯 CPUE & FPI"])
+    tab1, tab2, tab3 = st.tabs(["📈 Trend Produksi & Upaya", "🎯 CPUE & FPI", "📊 CPUE Standar"])
     
     with tab1:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
@@ -1780,6 +1680,636 @@ def buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_sta
         
         plt.tight_layout()
         st.pyplot(fig)
+    
+    with tab3:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Plot CPUE Standar per alat tangkap
+        # Cari kolom CPUE Standar
+        cpue_std_cols = [col for col in df_standard_cpue.columns if '_Std_CPUE' in col]
+        
+        if cpue_std_cols:
+            for i, col in enumerate(cpue_std_cols):
+                # Ekstrak nama alat tangkap dari nama kolom
+                gear_name = col.replace('_Std_CPUE', '')
+                display_name = display_names[gears.index(gear_name)] if gear_name in gears else gear_name
+                ax1.plot(df_standard_cpue['Tahun'], df_standard_cpue[col], 'o-', 
+                        label=display_name, markersize=4)
+        
+        ax1.set_title('CPUE Standar per Alat Tangkap')
+        ax1.set_xlabel('Tahun')
+        ax1.set_ylabel('CPUE Standar (kg/trip)')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot CPUE Standar Total
+        ax2.plot(df_standard_cpue['Tahun'], df_standard_cpue['CPUE_Standar_Total'], 
+                'go-', linewidth=2, markersize=8, label='CPUE Standar Total')
+        ax2.set_title('CPUE Standar Total')
+        ax2.set_xlabel('Tahun')
+        ax2.set_ylabel('CPUE Standar Total (kg/trip)')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        st.pyplot(fig)
+
+def proses_analisis_utama(production_inputs, effort_inputs):
+    """Proses analisis utama dengan multi-model MSY dan rekomendasi"""
+    df_production = pd.DataFrame(production_inputs)
+    df_effort = pd.DataFrame(effort_inputs)
+    config = get_config()
+    gears = config['gears']
+    display_names = config['display_names']
+    standard_gear = config['standard_gear']
+    
+    with st.status("🔄 Sedang menganalisis...", expanded=True) as status:
+        st.write("📈 Menghitung CPUE...")
+        df_cpue = hitung_cpue(df_production, df_effort, gears)
+        
+        st.write("🎯 Menghitung FPI...")
+        df_fpi = hitung_fpi_per_tahun(df_cpue, gears, standard_gear)
+        
+        st.write("⚖ Menghitung upaya standar...")
+        df_standard_effort = hitung_upaya_standar(df_effort, df_fpi, gears)
+        
+        st.write("📊 Menghitung CPUE standar...")  # DIPERBAIKI
+        df_standard_cpue = hitung_cpue_standar(df_production, df_standard_effort, gears)
+        
+        st.write("🧮 Analisis MSY Multi-Model...")
+        effort_values = df_standard_effort['Jumlah'].values
+        cpue_values = df_standard_cpue['CPUE_Standar_Total'].values
+        production_values = df_production['Jumlah'].values
+        
+        results_dict = bandingkan_model_msy(effort_values, cpue_values, production_values, st.session_state.selected_models)
+        
+        st.write("📊 Menganalisis status stok dan rekomendasi...")
+        
+        status.update(label="✅ Analisis selesai!", state="complete", expanded=False)
+    
+    st.session_state.analysis_results = {
+        'df_production': df_production,
+        'df_effort': df_effort,
+        'df_cpue': df_cpue,
+        'df_fpi': df_fpi,
+        'df_standard_effort': df_standard_effort,
+        'df_standard_cpue': df_standard_cpue,  # DIPERBAIKI
+        'msy_results': results_dict
+    }
+    
+    successful_models = {k: v for k, v in results_dict.items() if v and v['success']}
+    
+    if successful_models:
+        st.success(f"Analisis berhasil! {len(successful_models)} model valid.")
+        
+        best_model_name = max(successful_models.items(), key=lambda x: x[1]['r_squared'])[0]
+        best_model = successful_models[best_model_name]
+        
+        st.markdown("---")
+        st.header("📊 HASIL ANALISIS CPUE DAN MSY")
+        st.info(f"*Model terbaik*: {best_model_name} (R² = {best_model['r_squared']:.3f})")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("MSY/JTB", f"{best_model['C_MSY']:,.1f} kg")
+        with col2:
+            st.metric("F_MSY", f"{best_model['F_MSY']:,.1f} trip")
+        with col3:
+            st.metric("U_MSY", f"{best_model['U_MSY']:.3f} kg/trip")
+        with col4:
+            st.metric("R²", f"{best_model['r_squared']:.3f}")
+        
+        # Tampilkan tabel-tabel hasil - DIPERBAIKI DENGAN TAB CPUE STANDAR
+        st.header("📋 HASIL PERHITUNGAN")
+        
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🍤 Produksi", "🎣 Upaya", "📊 CPUE", "🎯 FPI", "⚖ Upaya Standar", "📈 CPUE Standar"])
+        
+        with tab1:
+            st.dataframe(df_production.style.format({col: "{:,.1f}" for col in df_production.columns if col != 'Tahun'}), use_container_width=True)
+        
+        with tab2:
+            st.dataframe(df_effort.style.format({col: "{:,}" for col in df_effort.columns if col != 'Tahun'}), use_container_width=True)
+        
+        with tab3:
+            st.dataframe(df_cpue.style.format({col: "{:.3f}" for col in df_cpue.columns if col != 'Tahun'}), use_container_width=True)
+        
+        with tab4:
+            st.dataframe(df_fpi.style.format({col: "{:.3f}" for col in df_fpi.columns if col != 'Tahun'}), use_container_width=True)
+        
+        with tab5:
+            st.dataframe(df_standard_effort.style.format({col: "{:,.1f}" for col in df_standard_effort.columns if col != 'Tahun'}), use_container_width=True)
+        
+        # TAB BARU: CPUE STANDAR - DIPERBAIKI
+        with tab6:
+            st.markdown("**CPUE Standar per Alat Tangkap (kg/trip setelah standardisasi)**")
+            
+            # Format kolom untuk tampilan yang lebih baik
+            format_dict = {}
+            for col in df_standard_cpue.columns:
+                if col == 'Tahun':
+                    format_dict[col] = "{:.0f}"
+                elif '_Std_CPUE' in col or col == 'CPUE_Standar_Total':
+                    format_dict[col] = "{:.4f}"
+                elif col == 'Ln_CPUE':
+                    format_dict[col] = "{:.6f}"
+            
+            st.dataframe(
+                df_standard_cpue.style.format(format_dict), 
+                use_container_width=True,
+                height=400
+            )
+            
+            # Tambahkan penjelasan
+            st.markdown("""
+            **Keterangan:**
+            - `[AlatTangkap]_Std_CPUE`: CPUE standar per alat tangkap (setelah dikalikan dengan FPI)
+            - `CPUE_Standar_Total`: CPUE total setelah standardisasi
+            - `Ln_CPUE`: Logaritma natural dari CPUE standar total (untuk analisis regresi)
+            
+            **Cara membaca:** CPUE standar adalah CPUE yang telah distandardisasi dengan FPI, 
+            sehingga nilai CPUE dari berbagai alat tangkap dapat dibandingkan secara langsung.
+            """)
+        
+        # Analisis Status Stok dan Rekomendasi
+        st.markdown("---")
+        years = df_production['Tahun'].tolist()
+        recommendations = analisis_status_stok(results_dict, production_values, effort_values, years)
+        
+        if recommendations:
+            render_rekomendasi(recommendations, production_inputs, years)
+            # Simpan rekomendasi ke session state untuk ekspor
+            st.session_state.analysis_results['recommendations'] = recommendations
+        
+        # Visualisasi
+        st.header("📈 VISUALISASI HASIL")
+        
+        # Panggil fungsi grafik MSY yang baru
+        render_grafik_msy_lengkap(effort_values, cpue_values, production_values, results_dict)
+        
+        # Visualisasi sederhana lainnya
+        buat_visualisasi_sederhana(df_production, df_effort, df_cpue, df_fpi, df_standard_effort, df_standard_cpue, results_dict, gears, display_names)
+        
+    else:
+        st.error("Analisis MSY gagal pada semua model. Periksa data input.")
+        
+        for model_name, results in results_dict.items():
+            if results and 'error' in results:
+                st.error(f"{model_name}: {results['error']}")
+
+# =====================================================
+# FUNGSI EKSPOR PDF BARU - LENGKAP DENGAN SEMUA HASIL
+# =====================================================
+def save_matplotlib_fig_to_buffer(fig):
+    """Simpan gambar matplotlib ke buffer"""
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    buf.seek(0)
+    return buf
+
+def create_data_table_for_pdf(dataframe, title):
+    """Buat tabel untuk PDF dari dataframe"""
+    # Konversi dataframe ke list of lists untuk tabel
+    data = [dataframe.columns.tolist()]
+    for _, row in dataframe.iterrows():
+        data.append(row.tolist())
+    
+    # Buat tabel dengan styling
+    table = Table(data)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+    ]))
+    
+    return table
+
+def create_pdf_with_all_results():
+    """Buat PDF lengkap dengan semua hasil analisis"""
+    if st.session_state.analysis_results is None:
+        st.error("❌ Tidak ada hasil analisis untuk diekspor ke PDF.")
+        return None
+    
+    try:
+        results = st.session_state.analysis_results
+        config = st.session_state.gear_config
+        
+        # Buat file PDF sementara
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            pdf_path = tmp_file.name
+        
+        # Buat dokumen PDF
+        doc = SimpleDocTemplate(
+            pdf_path,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
+        
+        story = []
+        styles = getSampleStyleSheet()
+        
+        # Judul Utama
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor=colors.HexColor('#1E3A8A'),
+            alignment=TA_CENTER,
+            spaceAfter=30
+        )
+        
+        story.append(Paragraph("LAPORAN ANALISIS POTENSI LESTARI IKAN KURISI", title_style))
+        
+        # Subjudul
+        subtitle_style = ParagraphStyle(
+            'CustomSubtitle',
+            parent=styles['Normal'],
+            fontSize=12,
+            textColor=colors.HexColor('#3B82F6'),
+            alignment=TA_CENTER,
+            spaceAfter=20
+        )
+        
+        story.append(Paragraph(f"Pelabuhan Perikanan Nusantara (PPN) Karangantu, Banten", subtitle_style))
+        story.append(Paragraph(f"Tanggal: {pd.Timestamp.now().strftime('%d %B %Y %H:%M')}", subtitle_style))
+        story.append(Spacer(1, 20))
+        
+        # 1. INFORMASI ANALISIS
+        section_style = ParagraphStyle(
+            'SectionTitle',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#0F766E'),
+            spaceAfter=10,
+            spaceBefore=20
+        )
+        
+        story.append(Paragraph("1. INFORMASI ANALISIS", section_style))
+        
+        info_data = [
+            ["Parameter", "Nilai"],
+            ["Jumlah Tahun Data", str(len(results['df_production']))],
+            ["Rentang Tahun", f"{results['df_production']['Tahun'].min()} - {results['df_production']['Tahun'].max()}"],
+            ["Jumlah Alat Tangkap", str(len(config['gears']))],
+            ["Alat Tangkap Standar", config['standard_gear']],
+            ["Model yang Dianalisis", ", ".join(st.session_state.selected_models)]
+        ]
+        
+        info_table = Table(info_data)
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#10B981')),
+            ('TEXTCOLOR', (0, 0), (1, 0), colors.white),
+            ('ALIGN', (0, 0), (1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (1, 0), 12),
+            ('BACKGROUND', (0, 1), (1, -1), colors.HexColor('#F0F9FF')),
+            ('GRID', (0, 0), (1, -1), 1, colors.HexColor('#CBD5E1')),
+            ('FONTSIZE', (0, 1), (1, -1), 9),
+        ]))
+        
+        story.append(info_table)
+        story.append(Spacer(1, 30))
+        
+        # 2. DATA PRODUKSI
+        story.append(Paragraph("2. DATA PRODUKSI (kg)", section_style))
+        story.append(create_data_table_for_pdf(results['df_production'], "Produksi"))
+        story.append(Spacer(1, 20))
+        
+        # 3. DATA UPAYA
+        story.append(Paragraph("3. DATA UPAYA (trip)", section_style))
+        story.append(create_data_table_for_pdf(results['df_effort'], "Upaya"))
+        story.append(Spacer(1, 20))
+        
+        # 4. HASIL CPUE
+        story.append(Paragraph("4. HASIL PERHITUNGAN CPUE (kg/trip)", section_style))
+        story.append(create_data_table_for_pdf(results['df_cpue'], "CPUE"))
+        story.append(Spacer(1, 20))
+        
+        # 5. HASIL FPI
+        story.append(Paragraph("5. HASIL FISHING POWER INDEX (FPI)", section_style))
+        story.append(create_data_table_for_pdf(results['df_fpi'], "FPI"))
+        story.append(Spacer(1, 20))
+        
+        # 6. UPAYA STANDAR
+        story.append(Paragraph("6. UPAYA STANDAR", section_style))
+        story.append(create_data_table_for_pdf(results['df_standard_effort'], "Upaya Standar"))
+        story.append(Spacer(1, 20))
+        
+        # 7. CPUE STANDAR - DIPERBAIKI
+        story.append(Paragraph("7. CPUE STANDAR (kg/trip setelah standardisasi)", section_style))
+        story.append(create_data_table_for_pdf(results['df_standard_cpue'], "CPUE Standar"))
+        story.append(Spacer(1, 20))
+        
+        # 8. HASIL ANALISIS MSY
+        story.append(PageBreak())
+        story.append(Paragraph("8. HASIL ANALISIS MSY (JTB)", section_style))
+        
+        successful_models = {k: v for k, v in results['msy_results'].items() if v and v['success']}
+        
+        if successful_models:
+            # Tabel perbandingan model
+            msy_data = [["Model", "MSY/JTB (kg)", "F_MSY", "U_MSY", "R²", "Status"]]
+            
+            for model_name, model_results in successful_models.items():
+                msy_data.append([
+                    model_name,
+                    f"{model_results['C_MSY']:,.1f}",
+                    f"{model_results['F_MSY']:,.1f}",
+                    f"{model_results['U_MSY']:.3f}",
+                    f"{model_results['r_squared']:.3f}",
+                    "VALID"
+                ])
+            
+            msy_table = Table(msy_data)
+            msy_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0F766E')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F0FDF4')),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#86EFAC')),
+                ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ]))
+            
+            story.append(msy_table)
+            story.append(Spacer(1, 20))
+            
+            # Tambahkan model terbaik
+            best_model_name = max(successful_models.items(), key=lambda x: x[1]['r_squared'])[0]
+            best_model = successful_models[best_model_name]
+            
+            story.append(Paragraph(f"Model Terbaik: {best_model_name} (R² = {best_model['r_squared']:.3f})", 
+                                  ParagraphStyle('Normal', fontSize=10, spaceAfter=10)))
+            
+            story.append(Paragraph(f"Persamaan: {best_model['equation']}", 
+                                  ParagraphStyle('Normal', fontSize=9, textColor=colors.grey, spaceAfter=20)))
+        
+        # 9. REKOMENDASI PENGELOLAAN
+        story.append(Paragraph("9. REKOMENDASI PENGELOLAAN DAN JTB", section_style))
+        
+        if 'recommendations' in results:
+            rec = results['recommendations']
+            
+            # Status stok dengan warna
+            status_color = colors.red if rec['status_stok'] == "OVERFISHING" else \
+                          colors.orange if rec['status_stok'] == "FULLY EXPLOITED" else colors.green
+            
+            status_data = [
+                ["Parameter", "Nilai"],
+                ["Status Stok", rec['status_stok']],
+                ["JTB (Jumlah Tangkapan yang Diperbolehkan)", f"{rec['jtb']:,.1f} kg"],
+                ["Upaya Optimal (F_MSY)", f"{rec['f_msy']:,.1f} trip"],
+                ["Produksi Terkini", f"{rec['current_production']:,.1f} kg"],
+                ["Rasio Produksi/JTB", f"{rec['production_ratio']:.1f}%"],
+                ["Trend Produksi", rec['trend_status']],
+                ["Model Terbaik", rec['best_model']]
+            ]
+            
+            status_table = Table(status_data)
+            status_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (1, 0), status_color),
+                ('TEXTCOLOR', (0, 0), (1, 0), colors.white),
+                ('ALIGN', (0, 0), (1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (1, 0), 12),
+                ('BACKGROUND', (0, 1), (1, -1), colors.HexColor('#FEF3C7')),
+                ('GRID', (0, 0), (1, -1), 1, colors.HexColor('#FBBF24')),
+                ('FONTSIZE', (0, 1), (1, -1), 9),
+                ('TEXTCOLOR', (0, 1), (0, 1), status_color),
+                ('FONTNAME', (0, 1), (0, 1), 'Helvetica-Bold'),
+            ]))
+            
+            story.append(status_table)
+            story.append(Spacer(1, 20))
+            
+            # Rekomendasi detail
+            story.append(Paragraph("Rekomendasi Utama:", 
+                                  ParagraphStyle('Heading3', fontSize=11, spaceAfter=5)))
+            story.append(Paragraph(rec['rekomendasi'], 
+                                  ParagraphStyle('Normal', fontSize=10, spaceAfter=10)))
+            
+            story.append(Paragraph("Aksi Khusus:", 
+                                  ParagraphStyle('Heading3', fontSize=11, spaceAfter=5)))
+            story.append(Paragraph(rec['aksi_khusus'], 
+                                  ParagraphStyle('Normal', fontSize=10, spaceAfter=20)))
+        
+        # 10. GRAFIK ANALISIS
+        story.append(PageBreak())
+        story.append(Paragraph("10. GRAFIK ANALISIS", section_style))
+        
+        # Buat grafik-grafik untuk PDF
+        effort_values = results['df_standard_effort']['Jumlah'].values
+        cpue_values = results['df_standard_cpue']['CPUE_Standar_Total'].values
+        production_values = results['df_production']['Jumlah'].values
+        
+        # Grafik 1: Trend Produksi
+        story.append(Paragraph("Grafik Trend Produksi", 
+                              ParagraphStyle('Heading3', fontSize=12, spaceAfter=10)))
+        
+        fig1, ax1 = plt.subplots(figsize=(8, 4))
+        years = results['df_production']['Tahun'].tolist()
+        ax1.plot(years, production_values, 'bo-', linewidth=2, markersize=6, label='Produksi Aktual')
+        
+        if 'recommendations' in results:
+            ax1.axhline(y=results['recommendations']['msy'], color='red', linestyle='--', 
+                       linewidth=1.5, label='JTB (MSY)')
+        
+        ax1.set_xlabel('Tahun')
+        ax1.set_ylabel('Produksi (kg)')
+        ax1.set_title('Trend Produksi Ikan Kurisi')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        img_buffer1 = save_matplotlib_fig_to_buffer(fig1)
+        story.append(Image(img_buffer1, width=6*inch, height=3*inch))
+        story.append(Spacer(1, 20))
+        plt.close(fig1)
+        
+        # Grafik 2: Perbandingan Model MSY
+        story.append(Paragraph("Grafik Perbandingan Model MSY", 
+                              ParagraphStyle('Heading3', fontSize=12, spaceAfter=10)))
+        
+        if successful_models:
+            fig2, ax2 = plt.subplots(figsize=(8, 4))
+            colors_list = ['red', 'blue']
+            line_styles = ['-', '--']
+            
+            ax2.scatter(effort_values, production_values, color='black', s=50, 
+                       zorder=5, label='Data Observasi')
+            
+            for i, (model_name, model_results) in enumerate(successful_models.items()):
+                if model_results['success']:
+                    x_fit = np.linspace(0.1, max(effort_values) * 1.2, 100)
+                    
+                    if model_name == 'Schaefer':
+                        y_fit = model_results['a'] * x_fit + model_results['b'] * (x_fit ** 2)
+                    elif model_name == 'Fox':
+                        y_fit = model_fox(x_fit, model_results['a'], model_results['b'])
+                    else:
+                        continue
+                        
+                    ax2.plot(x_fit, y_fit, color=colors_list[i % len(colors_list)], 
+                            linestyle=line_styles[i % len(line_styles)], 
+                            linewidth=1.5, label=model_name)
+                    
+                    ax2.scatter([model_results['F_MSY']], [model_results['C_MSY']], 
+                               color=colors_list[i % len(colors_list)], s=80, marker='*', zorder=6)
+            
+            ax2.set_xlabel('Upaya Penangkapan (F)')
+            ax2.set_ylabel('Produksi (C)')
+            ax2.set_title('Perbandingan Model MSY')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
+            
+            img_buffer2 = save_matplotlib_fig_to_buffer(fig2)
+            story.append(Image(img_buffer2, width=6*inch, height=3*inch))
+            story.append(Spacer(1, 20))
+            plt.close(fig2)
+        
+        # 11. CATATAN PENTING
+        story.append(Paragraph("11. CATATAN PENTING", section_style))
+        
+        notes_style = ParagraphStyle(
+            'Notes',
+            parent=styles['Normal'],
+            fontSize=9,
+            textColor=colors.grey,
+            spaceAfter=5
+        )
+        
+        notes = [
+            "1. JTB (Jumlah Tangkapan yang Diperbolehkan) adalah batas maksimal tangkapan",
+            "2. Rekomendasi berdasarkan analisis ilmiah model Schaefer dan Fox",
+            "3. Implementasi harus disesuaikan dengan kondisi lapangan",
+            "4. Monitoring berkala diperlukan untuk evaluasi dan penyesuaian",
+            "5. Partisipasi stakeholder sangat penting untuk keberhasilan",
+            "6. CPUE Standar adalah CPUE yang telah distandardisasi dengan FPI",
+            "7. CPUE Standar memungkinkan perbandingan langsung antar alat tangkap"
+        ]
+        
+        for note in notes:
+            story.append(Paragraph(note, notes_style))
+        
+        # Footer
+        story.append(Spacer(1, 40))
+        footer_style = ParagraphStyle(
+            'Footer',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=colors.grey,
+            alignment=TA_CENTER
+        )
+        
+        story.append(Paragraph("Dikembangkan untuk mendukung pengelolaan perikanan berkelanjutan", footer_style))
+        story.append(Paragraph("© 2025 - PPN Karangantu, Banten", footer_style))
+        
+        # Build PDF
+        doc.build(story)
+        
+        # Baca file PDF yang sudah dibuat
+        with open(pdf_path, 'rb') as f:
+            pdf_data = f.read()
+        
+        # Hapus file sementara
+        import os
+        os.unlink(pdf_path)
+        
+        return pdf_data
+        
+    except Exception as e:
+        st.error(f"❌ Error membuat PDF: {str(e)}")
+        return None
+
+def render_pdf_section():
+    """Render section untuk ekspor PDF"""
+    if st.session_state.analysis_results is None:
+        st.warning("📊 Hasil analisis belum tersedia. Silakan lakukan analisis terlebih dahulu.")
+        return
+    
+    st.header("🖨️ Ekspor ke PDF Lengkap")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("""
+        **📋 KONTEN PDF YANG AKAN DIHASILKAN:**
+        
+        **1. INFORMASI ANALISIS**
+        - Parameter analisis dan konfigurasi
+        
+        **2. DATA PRODUKSI (kg)**
+        - Tabel lengkap data produksi per alat tangkap
+        
+        **3. DATA UPAYA (trip)**
+        - Tabel lengkap data upaya penangkapan
+        
+        **4. HASIL CPUE (kg/trip)**
+        - Tabel hasil perhitungan CPUE
+        
+        **5. HASIL FPI (Fishing Power Index)**
+        - Tabel standardisasi alat tangkap
+        
+        **6. UPAYA STANDAR**
+        - Tabel upaya standar hasil konversi
+        
+        **7. CPUE STANDAR (DIPERBAIKI)**
+        - **Tabel CPUE standar per alat tangkap**
+        - CPUE yang telah distandardisasi dengan FPI
+        
+        **8. HASIL ANALISIS MSY (JTB)**
+        - Perbandingan model Schaefer vs Fox
+        - Nilai MSY/JTB, F_MSY, U_MSY
+        - Model terbaik dan persamaan
+        
+        **9. REKOMENDASI PENGELOLAAN**
+        - Status stok (Underfishing/Fully/Overfishing)
+        - JTB (Jumlah Tangkapan yang Diperbolehkan)
+        - Rekomendasi utama dan aksi khusus
+        
+        **10. GRAFIK ANALISIS**
+        - Grafik trend produksi
+        - Grafik perbandingan model MSY
+        
+        **11. CATATAN PENTING**
+        - Panduan implementasi
+        
+        **📄 FORMAT:** PDF standar, siap cetak dan dibagikan
+        """)
+    
+    with col2:
+        # Tombol untuk membuat PDF
+        if st.button("📥 Buat dan Download PDF Lengkap", 
+                    use_container_width=True, 
+                    type="primary",
+                    help="Klik untuk membuat PDF dengan semua hasil analisis"):
+            
+            with st.spinner("🔄 Membuat PDF lengkap..."):
+                pdf_data = create_pdf_with_all_results()
+                
+                if pdf_data is not None:
+                    # Encode PDF untuk download
+                    b64 = base64.b64encode(pdf_data).decode()
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="Laporan_Analisis_IKAN_KURISI_{pd.Timestamp.now().strftime("%Y%m%d_%H%M")}.pdf">Download PDF</a>'
+                    
+                    st.success("✅ PDF berhasil dibuat!")
+                    st.markdown(href, unsafe_allow_html=True)
+                    
+                    # Tampilkan preview kecil
+                    st.info("📄 **Preview PDF:** File berisi 3-5 halaman dengan semua hasil analisis")
+                else:
+                    st.error("❌ Gagal membuat PDF")
 
 # ==============================================
 # APLIKASI UTAMA
@@ -1804,8 +2334,11 @@ def main():
         else:
             st.error("Silakan isi data terlebih dahulu.")
     
-    # TAMPILKAN SECTION EKSPOR JIKA ADA HASIL ANALISIS
+    # TAMPILKAN SECTION PDF JIKA ADA HASIL ANALISIS
     if st.session_state.analysis_results is not None:
+        st.markdown("---")
+        # RENDER BAGIAN PDF LENGKAP
+        render_pdf_section()
         st.markdown("---")
         render_ekspor_section()
     
@@ -1817,6 +2350,7 @@ def main():
     **🔬 METODE ANALISIS:**
     - Perhitungan CPUE (Catch Per Unit Effort)
     - Standardisasi upaya dengan FPI (Fishing Power Index)
+    - **Perhitungan CPUE Standar per alat tangkap** ← DIPERBAIKI
     - Pendugaan MSY/JTB dengan model Schaefer dan Fox
     - **Analisis status stok dan rekomendasi pengelolaan**
     
@@ -1830,10 +2364,14 @@ def main():
     
     **⚠️ PERHATIAN:** JTB merupakan batas maksimal tangkapan untuk menjaga keberlanjutan stok
     
+    **✨ FITUR BARU:** CPUE Standar per alat tangkap untuk analisis yang lebih akurat
+    
     Dikembangkan untuk mendukung pengelolaan perikanan berkelanjutan | © 2025
     """)
 
-# PERBAIKAN: Gunakan __name__ yang benar
+# ==============================================
+# JALANKAN APLIKASI
+# ==============================================
 if __name__ == "__main__":
     main()
 
