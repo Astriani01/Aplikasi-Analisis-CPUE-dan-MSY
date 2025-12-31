@@ -90,7 +90,7 @@ def initialize_session_state():
         st.session_state.uploaded_data = None
     
     if 'r_value' not in st.session_state:
-        st.session_state.r_value = 0.58  # Nilai default dari FishBase untuk Nemipterus spp
+        st.session_state.r_value = 0.58
     
     if 'use_uploaded_data' not in st.session_state:
         st.session_state.use_uploaded_data = False
@@ -191,6 +191,797 @@ def render_referensi_ilmiah():
         - **Peraturan Menteri Kelautan dan Perikanan No. 18/2021** tentang Pengelolaan Perikanan
         - **Pedoman JTB (Jumlah Tangkapan yang Diperbolehkan)** oleh KKP
         - **SNI 01-6484.1-2000** tentang Metode Pendugaan Stok Ikan
+        """)
+
+# =====================================================
+# FUNGSI EKSPOR PDF LAPORAN LENGKAP
+# =====================================================
+def generate_pdf_report(results, r_value):
+    """Generate PDF report dengan semua hasil analisis dan referensi"""
+    
+    try:
+        # Buat buffer untuk PDF
+        buffer = BytesIO()
+        
+        # Setup dokumen PDF
+        doc = SimpleDocTemplate(buffer, pagesize=A4, 
+                              rightMargin=72, leftMargin=72,
+                              topMargin=72, bottomMargin=72)
+        
+        # Setup styles
+        styles = getSampleStyleSheet()
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor=colors.HexColor('#1E3A8A'),
+            spaceAfter=12,
+            alignment=TA_CENTER
+        )
+        
+        subtitle_style = ParagraphStyle(
+            'CustomSubtitle',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#3B82F6'),
+            spaceAfter=8,
+            alignment=TA_CENTER
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=12,
+            textColor=colors.HexColor('#1E40AF'),
+            spaceAfter=6,
+            alignment=TA_LEFT
+        )
+        
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=9,
+            spaceAfter=6
+        )
+        
+        # List untuk menyimpan konten
+        story = []
+        
+        # =================================================
+        # HALAMAN 1: COVER DAN IDENTITAS
+        # =================================================
+        story.append(Paragraph("LAPORAN ANALISIS POTENSI LESTARI IKAN KURISI", title_style))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph("(Nemipterus spp)", subtitle_style))
+        story.append(Spacer(1, 24))
+        
+        # Info utama
+        cover_info = [
+            ["Lokasi:", "Pelabuhan Perikanan Nusantara (PPN) Karangantu, Banten"],
+            ["Jenis Analisis:", "Maximum Sustainable Yield (MSY) dan JTB"],
+            ["Periode Data:", f"{min(results['years'])} - {max(results['years'])}"],
+            ["Jumlah Alat Tangkap:", str(len(results['gears']))],
+            ["Parameter r:", f"{r_value:.3f} (FishBase)"],
+            ["Tanggal Analisis:", pd.Timestamp.now().strftime('%d %B %Y')],
+            ["Dokumen ini berisi:", "Hasil analisis, rekomendasi, dan referensi ilmiah"]
+        ]
+        
+        # Buat tabel cover info
+        cover_table = Table(cover_info, colWidths=[150, 350])
+        cover_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#E5E7EB')),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#1F2937')),
+            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (-1, -1), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D1D5DB'))
+        ]))
+        
+        story.append(cover_table)
+        story.append(Spacer(1, 36))
+        
+        # Logo atau placeholder
+        story.append(Paragraph("🐟 SISTEM ANALISIS PERIKANAN BERKELANJUTAN", subtitle_style))
+        story.append(Spacer(1, 24))
+        
+        # Pernyataan
+        story.append(Paragraph("<b>PERNYATAAN:</b>", heading_style))
+        disclaimer = """
+        Laporan ini berisi hasil analisis ilmiah berdasarkan metode standar FAO 
+        untuk pendugaan potensi lestari (MSY/JTB). Semua perhitungan dilengkapi 
+        dengan referensi ilmiah dan parameter biologis yang valid.
+        """
+        story.append(Paragraph(disclaimer, normal_style))
+        
+        story.append(PageBreak())
+        
+        # =================================================
+        # HALAMAN 2: RINGKASAN EKSEKUTIF
+        # =================================================
+        story.append(Paragraph("RINGKASAN EKSEKUTIF", title_style))
+        story.append(Spacer(1, 12))
+        
+        if 'recommendations' in results and results['recommendations']:
+            rec = results['recommendations']
+            
+            # Status stok box
+            status_box = []
+            status_color = colors.HexColor('#10B981')  # Default hijau
+            
+            if rec['status_stok'] == "OVERFISHING":
+                status_color = colors.HexColor('#EF4444')
+                status_icon = "🔴"
+            elif rec['status_stok'] == "FULLY EXPLOITED":
+                status_color = colors.HexColor('#F59E0B')
+                status_icon = "🟡"
+            else:
+                status_color = colors.HexColor('#10B981')
+                status_icon = "🟢"
+            
+            status_info = [
+                [f"{status_icon} STATUS STOK:", rec['status_stok']],
+                ["Model Terbaik:", rec['best_model']],
+                ["JTB (MSY):", f"{rec['jtb']:,.1f} kg"],
+                ["Produksi Terkini:", f"{rec['current_production']:,.1f} kg"],
+                ["Rasio Produksi/JTB:", f"{rec['production_ratio']:.1f}%"],
+                ["Rekomendasi Utama:", rec['rekomendasi']]
+            ]
+            
+            status_table = Table(status_info, colWidths=[180, 320])
+            status_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, 0), status_color),
+                ('TEXTCOLOR', (0, 0), (0, 0), colors.white),
+                ('BACKGROUND', (1, 0), (1, 0), status_color),
+                ('TEXTCOLOR', (1, 0), (1, 0), colors.white),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F9FAFB')),
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E5E7EB'))
+            ]))
+            
+            story.append(status_table)
+            story.append(Spacer(1, 24))
+        
+        # Rekomendasi utama
+        story.append(Paragraph("<b>REKOMENDASI UTAMA:</b>", heading_style))
+        
+        if 'recommendations' in results and results['recommendations']:
+            rec = results['recommendations']
+            
+            rekomendasi_list = [
+                f"1. {rec['aksi_khusus']}",
+                f"2. Target JTB: {rec['jtb']:,.0f} kg",
+                f"3. Upaya optimal (F_MSY): {rec['f_msy']:,.0f} trip",
+                f"4. Monitoring intensif selama 12 bulan ke depan",
+                f"5. Evaluasi triwulanan berdasarkan data CPUE"
+            ]
+            
+            for item in rekomendasi_list:
+                story.append(Paragraph(f"• {item}", normal_style))
+        
+        story.append(Spacer(1, 24))
+        
+        # Parameter kunci
+        story.append(Paragraph("<b>PARAMETER KUNCI BIOLOGIS:</b>", heading_style))
+        
+        param_data = [
+            ["Parameter", "Nilai", "Sumber"],
+            ["r (laju pertumbuhan)", f"{r_value:.3f}", "FishBase"],
+            ["K (daya dukung)", f"{rec.get('K', 0):,.0f} kg" if 'recommendations' in results else "N/A", "Formula Gulland"],
+            ["MSY/JTB", f"{rec['jtb']:,.1f} kg" if 'recommendations' in results else "N/A", "Model MSY"],
+            ["F_MSY", f"{rec['f_msy']:,.1f} trip" if 'recommendations' in results else "N/A", "Model MSY"],
+            ["U_MSY", f"{rec['u_msy']:.3f} kg/trip" if 'recommendations' in results else "N/A", "Model MSY"]
+        ]
+        
+        param_table = Table(param_data, colWidths=[150, 150, 200])
+        param_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3B82F6')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D1D5DB'))
+        ]))
+        
+        story.append(param_table)
+        
+        story.append(PageBreak())
+        
+        # =================================================
+        # HALAMAN 3: DATA DASAR
+        # =================================================
+        story.append(Paragraph("DATA DASAR PRODUKSI DAN UPAYA", title_style))
+        story.append(Spacer(1, 12))
+        
+        # Data Produksi
+        story.append(Paragraph("<b>DATA PRODUKSI (kg):</b>", heading_style))
+        
+        # Siapkan data produksi untuk tabel
+        prod_data = [["Tahun"] + results['display_names'] + ["Jumlah"]]
+        
+        for _, row in results['df_production'].iterrows():
+            year = int(row['Tahun'])
+            row_data = [str(year)]
+            
+            for gear in results['gears']:
+                value = row[gear]
+                row_data.append(f"{value:,.0f}")
+            
+            row_data.append(f"{row['Jumlah']:,.0f}")
+            prod_data.append(row_data)
+        
+        # Tambahkan rata-rata
+        avg_row = ["Rata-rata"]
+        for gear in results['gears']:
+            avg = results['df_production'][gear].mean()
+            avg_row.append(f"{avg:,.0f}")
+        
+        avg_row.append(f"{results['df_production']['Jumlah'].mean():,.0f}")
+        prod_data.append(avg_row)
+        
+        prod_table = Table(prod_data, colWidths=[50] + [80] * len(results['gears']) + [80])
+        prod_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#F3F4F6')),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1D5DB'))
+        ]))
+        
+        story.append(prod_table)
+        story.append(Spacer(1, 12))
+        
+        # Data Upaya
+        story.append(Paragraph("<b>DATA UPAYA PENANGKAPAN (trip):</b>", heading_style))
+        
+        # Siapkan data upaya untuk tabel
+        eff_data = [["Tahun"] + results['display_names'] + ["Jumlah"]]
+        
+        for _, row in results['df_effort'].iterrows():
+            year = int(row['Tahun'])
+            row_data = [str(year)]
+            
+            for gear in results['gears']:
+                value = row[gear]
+                row_data.append(f"{value:,.0f}")
+            
+            row_data.append(f"{row['Jumlah']:,.0f}")
+            eff_data.append(row_data)
+        
+        # Tambahkan rata-rata
+        avg_row = ["Rata-rata"]
+        for gear in results['gears']:
+            avg = results['df_effort'][gear].mean()
+            avg_row.append(f"{avg:,.0f}")
+        
+        avg_row.append(f"{results['df_effort']['Jumlah'].mean():,.0f}")
+        eff_data.append(avg_row)
+        
+        eff_table = Table(eff_data, colWidths=[50] + [80] * len(results['gears']) + [80])
+        eff_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#F3F4F6')),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1D5DB'))
+        ]))
+        
+        story.append(eff_table)
+        
+        story.append(PageBreak())
+        
+        # =================================================
+        # HALAMAN 4: HASIL CPUE DAN FPI
+        # =================================================
+        story.append(Paragraph("HASIL PERHITUNGAN CPUE DAN FPI", title_style))
+        story.append(Spacer(1, 12))
+        
+        # CPUE Table
+        story.append(Paragraph("<b>CPUE (Catch Per Unit Effort) - kg/trip:</b>", heading_style))
+        
+        cpue_data = [["Tahun"] + results['display_names'] + ["Total"]]
+        
+        for _, row in results['df_cpue'].iterrows():
+            year = int(row['Tahun'])
+            row_data = [str(year)]
+            
+            for gear in results['gears']:
+                value = row[gear]
+                row_data.append(f"{value:.3f}")
+            
+            row_data.append(f"{row['Jumlah']:.3f}")
+            cpue_data.append(row_data)
+        
+        cpue_table = Table(cpue_data, colWidths=[50] + [80] * len(results['gears']) + [80])
+        cpue_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#059669')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1D5DB'))
+        ]))
+        
+        story.append(cpue_table)
+        story.append(Spacer(1, 12))
+        
+        # FPI Table
+        story.append(Paragraph("<b>Fishing Power Index (FPI):</b>", heading_style))
+        story.append(Paragraph("Indeks daya tangkap relatif (nilai tertinggi = 1)", styles['Italic']))
+        
+        fpi_data = [["Tahun"] + results['display_names'] + ["Total"]]
+        
+        for _, row in results['df_fpi'].iterrows():
+            year = int(row['Tahun'])
+            row_data = [str(year)]
+            
+            for gear in results['gears']:
+                value = row[gear]
+                row_data.append(f"{value:.3f}")
+            
+            row_data.append(f"{row['Jumlah']:.3f}")
+            fpi_data.append(row_data)
+        
+        fpi_table = Table(fpi_data, colWidths=[50] + [80] * len(results['gears']) + [80])
+        fpi_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#7C3AED')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1D5DB'))
+        ]))
+        
+        story.append(fpi_table)
+        
+        # Ranking efisiensi alat tangkap
+        story.append(Spacer(1, 12))
+        story.append(Paragraph("<b>RANKING EFISIENSI ALAT TANGKAP:</b>", heading_style))
+        
+        # Hitung rata-rata CPUE per alat
+        ranking_data = []
+        for gear, display_name in zip(results['gears'], results['display_names']):
+            avg_cpue = results['df_cpue'][gear].mean()
+            ranking_data.append({
+                'Alat Tangkap': display_name,
+                'Rata-rata CPUE': avg_cpue
+            })
+        
+        ranking_df = pd.DataFrame(ranking_data)
+        ranking_df = ranking_df.sort_values('Rata-rata CPUE', ascending=False)
+        ranking_df['Ranking'] = range(1, len(ranking_df) + 1)
+        
+        rank_data = [["Ranking", "Alat Tangkap", "Rata-rata CPUE (kg/trip)"]]
+        for _, row in ranking_df.iterrows():
+            rank_data.append([
+                str(row['Ranking']),
+                row['Alat Tangkap'],
+                f"{row['Rata-rata CPUE']:.3f}"
+            ])
+        
+        rank_table = Table(rank_data, colWidths=[60, 250, 150])
+        rank_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#DC2626')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D1D5DB'))
+        ]))
+        
+        story.append(rank_table)
+        
+        story.append(PageBreak())
+        
+        # =================================================
+        # HALAMAN 5: HASIL ANALISIS MSY/JTB
+        # =================================================
+        story.append(Paragraph("HASIL ANALISIS MSY/JTB", title_style))
+        story.append(Spacer(1, 12))
+        
+        story.append(Paragraph(f"<b>Parameter r yang digunakan:</b> {r_value:.3f} (sumber: FishBase)", heading_style))
+        
+        successful_models = {k: v for k, v in results['msy_results'].items() 
+                           if v and v['success']}
+        
+        if successful_models:
+            # Tampilkan perbandingan model
+            story.append(Paragraph("<b>PERBANDINGAN MODEL MSY:</b>", heading_style))
+            
+            msy_comp_data = [["Parameter", "Schaefer (1954)", "Fox (1970)"]]
+            
+            schaefer_results = successful_models.get('Schaefer', {})
+            fox_results = successful_models.get('Fox', {})
+            
+            comparison_items = [
+                ("JTB (MSY)", "kg", "{:,.1f}"),
+                ("F_MSY", "trip", "{:,.1f}"),
+                ("U_MSY", "kg/trip", "{:.3f}"),
+                ("R²", "", "{:.3f}"),
+                ("K (daya dukung)", "kg", "{:,.0f}")
+            ]
+            
+            for param, unit, fmt in comparison_items:
+                schaefer_val = schaefer_results.get(param.split(' ')[0].replace('(', ''), 0)
+                fox_val = fox_results.get(param.split(' ')[0].replace('(', ''), 0)
+                
+                if unit:
+                    schaefer_str = fmt.format(schaefer_val) + " " + unit if schaefer_val != 0 else "N/A"
+                    fox_str = fmt.format(fox_val) + " " + unit if fox_val != 0 else "N/A"
+                else:
+                    schaefer_str = fmt.format(schaefer_val) if schaefer_val != 0 else "N/A"
+                    fox_str = fmt.format(fox_val) if fox_val != 0 else "N/A"
+                
+                msy_comp_data.append([param, schaefer_str, fox_str])
+            
+            msy_comp_table = Table(msy_comp_data, colWidths=[150, 175, 175])
+            msy_comp_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D1D5DB')),
+                ('BACKGROUND', (1, 1), (1, -1), colors.HexColor('#F0F9FF')),
+                ('BACKGROUND', (2, 1), (2, -1), colors.HexColor('#FEF2F2'))
+            ]))
+            
+            story.append(msy_comp_table)
+            story.append(Spacer(1, 12))
+            
+            # Model terbaik
+            best_model = max(successful_models.items(), key=lambda x: x[1]['r_squared'])
+            best_model_name, best_model_results = best_model
+            
+            story.append(Paragraph(f"<b>MODEL TERBAIK: {best_model_name} (R² = {best_model_results['r_squared']:.3f})</b>", heading_style))
+            
+            best_model_data = [
+                ["Parameter", "Nilai", "Keterangan"],
+                ["JTB (Jumlah Tangkapan yang Diperbolehkan)", f"{best_model_results['C_MSY']:,.1f} kg", "Maximum Sustainable Yield"],
+                ["Upaya Optimal (F_MSY)", f"{best_model_results['F_MSY']:,.1f} trip", "Effort at MSY"],
+                ["CPUE Optimal (U_MSY)", f"{best_model_results['U_MSY']:.3f} kg/trip", "CPUE at MSY"],
+                ["Laju Pertumbuhan (r)", f"{best_model_results['r']:.3f}", "FishBase parameter"],
+                ["Daya Dukung (K)", f"{best_model_results.get('K', 0):,.0f} kg", "Carrying capacity"],
+                ["Persamaan Model", best_model_results['equation'], ""],
+                ["Referensi", best_model_results.get('reference', ''), ""]
+            ]
+            
+            best_model_table = Table(best_model_data, colWidths=[150, 150, 200])
+            best_model_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#059669')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+                ('ALIGN', (2, 1), (2, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D1D5DB')),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F0FDF4'))
+            ]))
+            
+            story.append(best_model_table)
+        else:
+            story.append(Paragraph("Tidak ada model yang berhasil dihitung", heading_style))
+        
+        story.append(PageBreak())
+        
+        # =================================================
+        # HALAMAN 6: REKOMENDASI PENGELOLAAN
+        # =================================================
+        story.append(Paragraph("REKOMENDASI PENGELOLAAN PERIKANAN", title_style))
+        story.append(Spacer(1, 12))
+        
+        if 'recommendations' in results and results['recommendations']:
+            rec = results['recommendations']
+            
+            # Rencana aksi berdasarkan status
+            story.append(Paragraph("<b>RENCANA AKSI PENGELOLAAN:</b>", heading_style))
+            
+            if rec['status_stok'] == "OVERFISHING":
+                plan_color = colors.HexColor('#DC2626')
+                plan_items = [
+                    "1. PENURUNAN SEGERA (1-3 bulan):",
+                    "   • Kurangi upaya penangkapan sesuai rekomendasi",
+                    "   • Implementasi sistem kuota berdasarkan JTB",
+                    "   • Batasi alat tangkap tidak selektif",
+                    "",
+                    "2. MONITORING INTENSIF (3-12 bulan):",
+                    "   • Pemantauan CPUE bulanan",
+                    "   • Early warning system untuk stok kritis",
+                    "   • Patroli pengawasan intensif",
+                    "",
+                    "3. REHABILITASI (1-2 tahun):",
+                    "   • Program restocking jika diperlukan",
+                    "   • Perlindungan spawning ground",
+                    "   • Revisi peraturan alat tangkap"
+                ]
+            elif rec['status_stok'] == "FULLY EXPLOITED":
+                plan_color = colors.HexColor('#F59E0B')
+                plan_items = [
+                    "1. PEMELIHARAAN STATUS (1-3 bulan):",
+                    "   • Pertahankan upaya pada level F_MSY",
+                    "   • Sistem kuota berbasis JTB",
+                    "   • Optimalisasi alat tangkap",
+                    "",
+                    "2. MONITORING RUTIN (3-12 bulan):",
+                    "   • Pemantauan stok triwulan",
+                    "   • Sistem deteksi dini perubahan stok",
+                    "   • Database produksi real-time",
+                    "",
+                    "3. OPTIMASI BERKELANJUTAN (1-2 tahun):",
+                    "   • Perbaikan alat tangkap selektif",
+                    "   • Peningkatan nilai tambah produk",
+                    "   • Sertifikasi keberlanjutan"
+                ]
+            else:
+                plan_color = colors.HexColor('#10B981')
+                plan_items = [
+                    "1. PENINGKATAN BERTAHAP (1-3 bulan):",
+                    "   • Tingkatkan upaya menuju F_MSY",
+                    "   • Roadmap peningkatan produksi",
+                    "   • Efisiensi operasi penangkapan",
+                    "",
+                    "2. OPTIMASI EFISIENSI (3-12 bulan):",
+                    "   • Peningkatan CPUE melalui pelatihan",
+                    "   • Perbaikan teknologi alat tangkap",
+                    "   • Manajemen trip efektif",
+                    "",
+                    "3. EKSPANSI BERKELANJUTAN (1-2 tahun):",
+                    "   • Diversifikasi area penangkapan",
+                    "   • Pengembangan pasar produk",
+                    "   • Peningkatan kapasitas nelayan"
+                ]
+            
+            for item in plan_items:
+                if item.startswith(("1.", "2.", "3.")):
+                    story.append(Paragraph(f"<b>{item}</b>", normal_style))
+                elif item:
+                    story.append(Paragraph(item, normal_style))
+                else:
+                    story.append(Spacer(1, 6))
+            
+            story.append(Spacer(1, 12))
+            
+            # Timeline implementasi
+            story.append(Paragraph("<b>TIMELINE IMPLEMENTASI:</b>", heading_style))
+            
+            timeline_data = [
+                ["Fase", "Waktu", "Aktivitas Utama", "Output"],
+                ["Fase 1", "Bulan 1-3", "Implementasi rekomendasi utama", "Penyesuaian upaya penangkapan"],
+                ["Fase 2", "Bulan 4-12", "Monitoring intensif dan evaluasi", "Laporan monitoring triwulan"],
+                ["Fase 3", "Tahun 2", "Optimasi berkelanjutan", "Sistem pengelolaan permanen"]
+            ]
+            
+            timeline_table = Table(timeline_data, colWidths=[100, 80, 200, 120])
+            timeline_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), plan_color),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('ALIGN', (2, 0), (2, -1), 'LEFT'),
+                ('ALIGN', (3, 0), (3, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D1D5DB')),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F9FAFB'))
+            ]))
+            
+            story.append(timeline_table)
+        
+        story.append(PageBreak())
+        
+        # =================================================
+        # HALAMAN 7: REFERENSI ILMIAH
+        # =================================================
+        story.append(Paragraph("REFERENSI ILMIAH DAN SUMBER RUMSUS", title_style))
+        story.append(Spacer(1, 12))
+        
+        references = [
+            ["No", "Sumber", "Keterangan", "Tahun/Link"],
+            [1, "Schaefer, M.B.", "Model Schaefer: CPUE = a + bF", "1954"],
+            [2, "Fox, W.W.", "Model Fox: C = F × exp(a - bF)", "1970"],
+            [3, "Gulland, J.A.", "Formula MSY = rK/4", "1971"],
+            [4, "FAO", "Guidelines for fishery data collection", "1999"],
+            [5, "Sparre & Venema", "Tropical fish stock assessment", "1998"],
+            [6, "Hilborn & Walters", "Quantitative stock assessment", "1992"],
+            [7, "FAO", "State of World Fisheries", "2014"],
+            [8, "FishBase", "Parameter biologis Nemipterus spp", "fishbase.se"],
+            [9, "KKP RI", "Permen KP No. 18/2021", "2021"],
+            [10, "Caddy, J.F.", "Practical guidelines for fisheries", "1999"]
+        ]
+        
+        ref_table = Table(references, colWidths=[30, 150, 200, 120])
+        ref_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E3A8A')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (1, 0), (2, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#D1D5DB')),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F9FAFB'))
+        ]))
+        
+        story.append(ref_table)
+        story.append(Spacer(1, 12))
+        
+        # Rumus penting
+        story.append(Paragraph("<b>RUMSUS UTAMA YANG DIGUNAKAN:</b>", heading_style))
+        
+        formulas = [
+            "1. CPUE (Catch Per Unit Effort): CPUE = Produksi / Upaya",
+            "2. Fishing Power Index: FPI = CPUE_i / CPUE_max",
+            "3. Upaya Standar: F_std = F × FPI",
+            "4. Model Schaefer: CPUE = a + b × F; MSY = -a²/(4b)",
+            "5. Model Fox: C = F × exp(a - b × F); MSY = (1/b) × exp(a - 1)",
+            "6. Formula Gulland: MSY = r × K / 4",
+            "7. Waktu pemulihan: T = ln(2) / r"
+        ]
+        
+        for formula in formulas:
+            story.append(Paragraph(formula, normal_style))
+        
+        # Footer halaman terakhir
+        story.append(Spacer(1, 24))
+        story.append(Paragraph("Dokumen ini dibuat secara otomatis oleh Sistem Analisis Potensi Lestari", 
+                              ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, 
+                                           alignment=TA_CENTER, textColor=colors.gray)))
+        story.append(Paragraph(f"Tanggal generate: {pd.Timestamp.now().strftime('%d %B %Y %H:%M:%S')}", 
+                              ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, 
+                                           alignment=TA_CENTER, textColor=colors.gray)))
+        
+        # Build PDF
+        doc.build(story)
+        
+        buffer.seek(0)
+        return buffer
+        
+    except Exception as e:
+        st.error(f"❌ Error saat membuat PDF: {str(e)}")
+        return None
+
+def render_ekspor_pdf_section():
+    """Render section untuk ekspor PDF"""
+    if st.session_state.analysis_results is None:
+        st.warning("📊 Hasil analisis belum tersedia. Silakan lakukan analisis terlebih dahulu.")
+        return
+    
+    st.header("📄 Ekspor Laporan PDF")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("""
+        ### **📋 ISI LAPORAN PDF:**
+        
+        **Halaman 1: Cover dan Identitas**
+        - Judul laporan dan informasi dasar
+        
+        **Halaman 2: Ringkasan Eksekutif**
+        - Status stok dan rekomendasi utama
+        - Parameter kunci biologis
+        
+        **Halaman 3: Data Dasar**
+        - Data produksi lengkap (kg)
+        - Data upaya penangkapan (trip)
+        
+        **Halaman 4: Hasil CPUE dan FPI**
+        - Perhitungan CPUE per alat tangkap
+        - Fishing Power Index (FPI)
+        - Ranking efisiensi alat tangkap
+        
+        **Halaman 5: Analisis MSY/JTB**
+        - Perbandingan model Schaefer vs Fox
+        - Model terbaik dengan parameter lengkap
+        - JTB (Jumlah Tangkapan yang Diperbolehkan)
+        
+        **Halaman 6: Rekomendasi Pengelolaan**
+        - Rencana aksi berdasarkan status stok
+        - Timeline implementasi
+        - Strategi pengelolaan
+        
+        **Halaman 7: Referensi Ilmiah**
+        - Daftar lengkap referensi dan sumber
+        - Rumus-rumus utama yang digunakan
+        
+        ### **🎯 KEGUNAAN LAPORAN:**
+        - Dokumentasi ilmiah
+        - Laporan resmi ke pihak berwenang
+        - Publikasi dan presentasi
+        - Bahan pengambilan keputusan
+        - Monitoring dan evaluasi
+        """)
+    
+    with col2:
+        if st.button("📄 Buat Laporan PDF", type="primary", use_container_width=True):
+            with st.spinner("Membuat laporan PDF..."):
+                pdf_buffer = generate_pdf_report(
+                    st.session_state.analysis_results, 
+                    st.session_state.r_value
+                )
+                
+                if pdf_buffer:
+                    # Encode PDF untuk download
+                    b64 = base64.b64encode(pdf_buffer.read()).decode()
+                    
+                    # Tombol download
+                    current_date = pd.Timestamp.now().strftime('%Y%m%d_%H%M')
+                    filename = f"Laporan_MSY_Ikan_Kurisi_{current_date}.pdf"
+                    
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="{filename}" style="text-decoration: none;">'
+                    st.markdown(f"""
+                    {href}
+                        <button style="
+                            background-color: #DC2626;
+                            color: white;
+                            padding: 12px 24px;
+                            border: none;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-size: 16px;
+                            font-weight: bold;
+                            width: 100%;
+                            margin-top: 20px;
+                        ">
+                            📥 Download Laporan PDF
+                        </button>
+                    </a>
+                    """, unsafe_allow_html=True)
+                    
+                    # Preview PDF
+                    st.markdown("---")
+                    st.subheader("👁️ Preview Laporan")
+                    
+                    # Tampilkan preview PDF di iframe
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600px"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+        
+        st.markdown("""
+        ### **📌 CATATAN:**
+        1. Laporan ini berisi **7 halaman lengkap**
+        2. Format **PDF siap cetak**
+        3. Dilengkapi **referensi ilmiah**
+        4. Cocok untuk **dokumentasi resmi**
+        5. Dapat dibuka di **semua perangkat**
         """)
 
 # =====================================================
@@ -786,11 +1577,6 @@ def render_grafik_cpue(df_cpue, df_effort, gears, display_names):
 def analisis_msy_schaefer(standard_effort_total, cpue_standard_total, production_total, r_value):
     """
     Analisis MSY menggunakan Model Schaefer (1954)
-    
-    Referensi:
-    Schaefer, M.B. (1954). Some aspects of the dynamics of populations important 
-    to the management of commercial marine fisheries.
-    Bulletin of the Inter-American Tropical Tuna Commission.
     """
     if len(standard_effort_total) < 2:
         return None
@@ -827,10 +1613,6 @@ def analisis_msy_schaefer(standard_effort_total, cpue_standard_total, production
 def model_fox(F, a, b):
     """
     Model Fox (1970): C = F × exp(a - b × F)
-    
-    Referensi:
-    Fox, W.W. (1970). An exponential surplus-yield model for optimizing 
-    exploited fish populations. Transactions of the American Fisheries Society.
     """
     return F * np.exp(a - b * F)
 
@@ -1022,64 +1804,6 @@ def render_grafik_msy_lengkap(effort_data, cpue_data, production_data, msy_resul
     """Render grafik MSY yang lengkap"""
     st.header("📈 Grafik Analisis MSY")
     
-    # Tampilkan teori MSY
-    with st.expander("📖 TEORI DAN RUMSUS MSY", expanded=False):
-        st.markdown("""
-        ### **TEORI MAXIMUM SUSTAINABLE YIELD (MSY)**
-        
-        #### **1. MODEL SCHAEFER (1954):**
-        **Persamaan Linear:**
-        $$
-        \\text{CPUE} = a + b \\times F
-        $$
-        
-        **Parameter MSY:**
-        $$
-        F_{\\text{MSY}} = -\\frac{a}{2b}
-        $$
-        $$
-        U_{\\text{MSY}} = \\frac{a}{2}
-        $$
-        $$
-        \\text{MSY} = F_{\\text{MSY}} \\times U_{\\text{MSY}} = -\\frac{a^2}{4b}
-        $$
-        
-        **Sumber:** Schaefer, M.B. (1954). *Some aspects of the dynamics of populations important to the management of commercial marine fisheries*.
-        
-        #### **2. MODEL FOX (1970):**
-        **Persamaan Eksponensial:**
-        $$
-        C = F \\times \\exp(a - b \\times F)
-        $$
-        
-        **Parameter MSY:**
-        $$
-        F_{\\text{MSY}} = \\frac{1}{b}
-        $$
-        $$
-        \\text{MSY} = \\frac{1}{b} \\times \\exp(a - 1)
-        $$
-        
-        **Sumber:** Fox, W.W. (1970). *An exponential surplus-yield model for optimizing exploited fish populations*.
-        
-        #### **3. PARAMETER BIOLOGIS:**
-        **Formula Gulland (1971):**
-        $$
-        \\text{MSY} = \\frac{r \\times K}{4}
-        $$
-        
-        **Keterangan:**
-        - $r$ = Laju pertumbuhan intrinsik (dari FishBase)
-        - $K$ = Daya dukung lingkungan
-        - $\\text{MSY}$ = Jumlah Tangkapan yang Diperbolehkan (JTB)
-        
-        #### **4. LINK REFERENSI:**
-        1. **Schaefer Model:** https://doi.org/10.1016/0044-8486(54)90003-5
-        2. **Fox Model:** https://doi.org/10.1577/1548-8659(1970)99%3C80:AESMFO%3E2.0.CO;2
-        3. **FishBase:** https://www.fishbase.se/
-        4. **FAO MSY Guidelines:** http://www.fao.org/3/y3427e/y3427e00.htm
-        """)
-    
     successful_models = {k: v for k, v in msy_results.items() if v and v['success']}
     
     if not successful_models:
@@ -1216,7 +1940,7 @@ def analisis_status_stok(msy_results, production_values, effort_values, years):
         trend_status = "📊 Data tidak cukup"
         trend_direction = "tidak diketahui"
     
-    # Rekomendasi kuantitatif berdasarkan Caddy (1999)
+    # Rekomendasi kuantitatif
     if status_stok == "OVERFISHING":
         target_pengurangan = current_effort - f_msy_value
         persentase_pengurangan = (target_pengurangan / current_effort * 100) if current_effort > 0 else 0
@@ -1228,9 +1952,8 @@ def analisis_status_stok(msy_results, production_values, effort_values, years):
     else:
         aksi_khusus = "Pertahankan status saat ini"
     
-    # Estimasi waktu pemulihan berdasarkan model pertumbuhan logistik
+    # Estimasi waktu pemulihan
     if status_stok == "OVERFISHING" and r_value > 0:
-        # Waktu paruh pemulihan: T = ln(2)/r
         waktu_pemulihan = np.log(2) / r_value if r_value > 0 else 0
         waktu_pemulihan_text = f"{waktu_pemulihan:.1f} tahun"
     else:
@@ -1265,29 +1988,6 @@ def analisis_status_stok(msy_results, production_values, effort_values, years):
 def render_rekomendasi(recommendations, production_data, years):
     """Render rekomendasi pengelolaan dan JTB dengan referensi"""
     st.header("🎯 REKOMENDASI PENGELOLAAN DAN JTB")
-    
-    # Tampilkan referensi status stok
-    with st.expander("📖 KRITERIA STATUS STOK (FAO)", expanded=False):
-        st.markdown("""
-        ### **KRITERIA STATUS STOK BERDASARKAN FAO (2014):**
-        
-        #### **1. UNDERFISHING (Hijau):**
-        - Produksi < 80% JTB
-        - Stok belum tereksploitasi optimal
-        - Potensi peningkatan produksi masih ada
-        
-        #### **2. FULLY EXPLOITED (Kuning):**
-        - Produksi 80-100% JTB
-        - Stok sudah dieksploitasi optimal
-        - Risiko overfishing jika ditingkatkan
-        
-        #### **3. OVERFISHING (Merah):**
-        - Produksi > 100% JTB
-        - Stok mengalami tekanan berlebih
-        - Perlu pengurangan upaya segera
-        
-        **Sumber:** FAO. (2014). *The State of World Fisheries and Aquaculture*.
-        """)
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -1345,10 +2045,6 @@ def render_rekomendasi(recommendations, production_data, years):
     ax.legend()
     ax.grid(True, alpha=0.3)
     
-    # Tambahkan referensi
-    fig.text(0.02, 0.02, 'Sumber: FAO (2014). The State of World Fisheries and Aquaculture', 
-             fontsize=8, style='italic', color='gray')
-    
     st.pyplot(fig)
     
     st.subheader("📋 REKOMENDASI PENGELOLAAN")
@@ -1358,7 +2054,7 @@ def render_rekomendasi(recommendations, production_data, years):
     st.subheader("🎯 RENCANA AKSI BERDASARKAN STATUS")
     if recommendations['status_stok'] == "OVERFISHING":
         st.error(f"""
-        **🔴 RENCANA AKSI OVERFISHING (berdasarkan Caddy, 1999):**
+        **🔴 RENCANA AKSI OVERFISHING:**
         
         **1. PENURUNAN SEGERA (1-3 bulan):**
         - Turunkan upaya penangkapan sesuai rekomendasi
@@ -1378,7 +2074,7 @@ def render_rekomendasi(recommendations, production_data, years):
     
     elif recommendations['status_stok'] == "FULLY EXPLOITED":
         st.warning(f"""
-        **🟡 RENCANA AKSI FULLY EXPLOITED (berdasarkan FAO, 2014):**
+        **🟡 RENCANA AKSI FULLY EXPLOITED:**
         
         **1. PEMELIHARAAN STATUS (1-3 bulan):**
         - Pertahankan upaya pada level F_MSY = {recommendations['f_msy']:,.0f} trip
@@ -1398,7 +2094,7 @@ def render_rekomendasi(recommendations, production_data, years):
     
     else:
         st.success(f"""
-        **🟢 RENCANA AKSI UNDERFISHING (berdasarkan Sparre & Venema, 1998):**
+        **🟢 RENCANA AKSI UNDERFISHING:**
         
         **1. PENINGKATAN BERTAHAP (1-3 bulan):**
         - Tingkatkan upaya menuju F_MSY = {recommendations['f_msy']:,.0f} trip
@@ -1415,107 +2111,13 @@ def render_rekomendasi(recommendations, production_data, years):
         - Pengembangan pasar produk
         - Peningkatan kapasitas nelayan
         """)
-    
-    st.subheader("📊 PARAMETER PENGELOLAAN")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("##### Parameter Kunci")
-        param_data = {
-            'Parameter': [
-                'JTB (MSY)',
-                'F_MSY (Upaya Optimal)',
-                'U_MSY (CPUE Optimal)',
-                'r (laju pertumbuhan)',
-                'K (daya dukung)',
-                'Produksi Terkini',
-                'Upaya Terkini',
-                'CPUE Terkini'
-            ],
-            'Nilai': [
-                f"{recommendations['jtb']:,.1f} kg",
-                f"{recommendations['f_msy']:,.1f} trip",
-                f"{recommendations['u_msy']:.3f} kg/trip",
-                f"{recommendations['r_value']:.3f}",
-                f"{recommendations['K']:,.0f} kg",
-                f"{recommendations['current_production']:,.1f} kg",
-                f"{recommendations['current_effort']:,.1f} trip",
-                f"{recommendations['current_production']/recommendations['current_effort']:.3f} kg/trip" if recommendations['current_effort'] > 0 else "0 kg/trip"
-            ],
-            'Sumber': [
-                'Model Schaefer/Fox',
-                'Model Schaefer/Fox',
-                'Model Schaefer/Fox',
-                'FishBase',
-                'Formula Gulland',
-                'Data Observasi',
-                'Data Observasi',
-                'Perhitungan CPUE'
-            ]
-        }
-        st.dataframe(pd.DataFrame(param_data), use_container_width=True)
-    
-    with col2:
-        st.markdown("##### Analisis Status")
-        analisis_data = {
-            'Analisis': [
-                'Status Stok',
-                'Rasio Produksi/JTB',
-                'Trend Produksi',
-                'Model Terbaik',
-                'Tahun Analisis',
-                'Estimasi Pemulihan',
-                'Kriteria Status'
-            ],
-            'Hasil': [
-                recommendations['status_stok'],
-                f"{recommendations['production_ratio']:.1f}%",
-                recommendations['trend_status'],
-                recommendations['best_model'],
-                f"{min(years)}-{max(years)}",
-                recommendations['waktu_pemulihan'],
-                'FAO (2014)'
-            ]
-        }
-        st.dataframe(pd.DataFrame(analisis_data), use_container_width=True)
-    
-    st.info(f"""
-    **💡 CATATAN PENTING DAN REFERENSI:**
-    1. **JTB (Jumlah Tangkapan yang Diperbolehkan)** = MSY (Maximum Sustainable Yield)
-       - **Sumber:** Peraturan Menteri Kelautan dan Perikanan No. 18/2021
-    
-    2. **Parameter r (laju pertumbuhan intrinsik)**: {recommendations['r_value']:.3f}
-       - **Sumber:** FishBase untuk Nemipterus spp
-       - **Link:** https://www.fishbase.se/search.php
-    
-    3. **Kesalahan yang dikoreksi:** Nilai 13,609.0211 adalah MSY/JTB dalam kg, BUKAN nilai r!
-    
-    4. **Rekomendasi ini berdasarkan:**
-       - **Model:** {recommendations['best_model']} ({recommendations['model_reference']})
-       - **Kriteria Status:** FAO (2014) - The State of World Fisheries and Aquaculture
-       - **Pedoman Nasional:** Permen KP No. 18/2021
-    
-    5. **Referensi Utama:**
-       - Schaefer, M.B. (1954). Bulletin of the Inter-American Tropical Tuna Commission
-       - Fox, W.W. (1970). Transactions of the American Fisheries Society
-       - Gulland, J.A. (1971). The fish resources of the ocean
-       - FAO (2014). The State of World Fisheries and Aquaculture
-    
-    6. **Monitoring berkala** diperlukan untuk evaluasi dan penyesuaian
-    
-    7. **Partisipasi stakeholder** (nelayan, pengusaha, pemerintah) sangat penting untuk keberhasilan
-    """)
 
 # ==============================================
-# FUNGSI PERHITUNGAN CPUE, FPI, dll. DENGAN REFERENSI
+# FUNGSI PERHITUNGAN CPUE, FPI, dll.
 # ==============================================
 def hitung_cpue(produksi_df, upaya_df, gears):
     """
     Hitung CPUE untuk setiap alat tangkap
-    
-    Referensi:
-    FAO. (1999). Guidelines for the routine collection of capture fishery data.
-    Fisheries Technical Paper No. 382.
     """
     cpue_data = []
     years = produksi_df['Tahun'].values
@@ -1537,10 +2139,6 @@ def hitung_cpue(produksi_df, upaya_df, gears):
 def hitung_fpi_per_tahun(cpue_df, gears, standard_gear):
     """
     Hitung FPI per tahun - FPI diambil dari nilai CPUE tertinggi = 1
-    
-    Referensi:
-    Sparre, P., & Venema, S.C. (1998). Introduction to tropical fish stock assessment.
-    FAO Fisheries Technical Paper No. 306/1 Rev. 2.
     """
     fpi_data = []
     years = cpue_df['Tahun'].values
@@ -1565,10 +2163,6 @@ def hitung_fpi_per_tahun(cpue_df, gears, standard_gear):
 def hitung_upaya_standar(upaya_df, fpi_df, gears):
     """
     Hitung upaya standar
-    
-    Referensi:
-    Sparre, P., & Venema, S.C. (1998). Introduction to tropical fish stock assessment.
-    FAO Fisheries Technical Paper No. 306/1 Rev. 2.
     """
     standard_effort_data = []
     years = upaya_df['Tahun'].values
@@ -1593,10 +2187,6 @@ def hitung_upaya_standar(upaya_df, fpi_df, gears):
 def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
     """
     Hitung CPUE standar per alat tangkap dan total
-    
-    Referensi:
-    Hilborn, R., & Walters, C.J. (1992). Quantitative fisheries stock assessment.
-    Chapman & Hall.
     """
     standard_cpue_data = []
     years = produksi_df['Tahun'].values
@@ -1623,10 +2213,10 @@ def hitung_cpue_standar(produksi_df, standard_effort_df, gears):
     return pd.DataFrame(standard_cpue_data)
 
 # ==============================================
-# FUNGSI EKSPOR HASIL ANALISIS DENGAN REFERENSI
+# FUNGSI EKSPOR HASIL ANALISIS KE EXCEL
 # ==============================================
 def ekspor_hasil_analisis():
-    """Ekspor hasil analisis ke file Excel termasuk rekomendasi dan referensi"""
+    """Ekspor hasil analisis ke file Excel"""
     if st.session_state.analysis_results is None:
         st.error("❌ Tidak ada hasil analisis untuk diekspor. Silakan lakukan analisis terlebih dahulu.")
         return None
@@ -1643,7 +2233,7 @@ def ekspor_hasil_analisis():
             results['df_standard_effort'].to_excel(writer, sheet_name='Upaya Standar', index=False)
             results['df_standard_cpue'].to_excel(writer, sheet_name='CPUE Standar', index=False)
             
-            # Hasil MSY dengan referensi
+            # Hasil MSY
             msy_data = []
             for model_name, model_results in results['msy_results'].items():
                 if model_results and model_results['success']:
@@ -1700,79 +2290,6 @@ def ekspor_hasil_analisis():
                     ]
                 })
                 summary_data.to_excel(writer, sheet_name='Rekomendasi', index=False)
-            
-            workbook = writer.book
-            
-            # Sheet Referensi
-            worksheet_ref = workbook.add_worksheet('Referensi Ilmiah')
-            
-            references = [
-                ['No', 'Sumber', 'Keterangan', 'Link/Tahun'],
-                [1, 'Schaefer, M.B.', 'Model Schaefer (1954)', '1954'],
-                [2, 'Fox, W.W.', 'Model Fox (1970)', '1970'],
-                [3, 'Gulland, J.A.', 'Formula MSY = rK/4 (1971)', '1971'],
-                [4, 'FAO', 'Guidelines for fishery data (1999)', '1999'],
-                [5, 'Sparre & Venema', 'Tropical fish stock assessment (1998)', '1998'],
-                [6, 'Hilborn & Walters', 'Quantitative stock assessment (1992)', '1992'],
-                [7, 'FAO', 'State of World Fisheries (2014)', '2014'],
-                [8, 'FishBase', 'Parameter biologis Nemipterus spp', 'https://fishbase.se'],
-                [9, 'Permen KP No. 18/2021', 'Pengelolaan Perikanan Indonesia', '2021']
-            ]
-            
-            for row_num, row_data in enumerate(references):
-                for col_num, cell_data in enumerate(row_data):
-                    worksheet_ref.write(row_num, col_num, cell_data)
-            
-            worksheet_ref.set_column(0, 0, 5)
-            worksheet_ref.set_column(1, 1, 25)
-            worksheet_ref.set_column(2, 2, 40)
-            worksheet_ref.set_column(3, 3, 20)
-            
-            # Ringkasan Analisis
-            worksheet_summary = workbook.add_worksheet('Ringkasan Analisis')
-            
-            format_header = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC'})
-            
-            worksheet_summary.write('A1', 'RINGKASAN HASIL ANALISIS CPUE, MSY DAN REKOMENDASI', format_header)
-            worksheet_summary.write('A3', 'Parameter', format_header)
-            worksheet_summary.write('B3', 'Nilai', format_header)
-            worksheet_summary.write('C3', 'Sumber/Referensi', format_header)
-            
-            successful_models = {k: v for k, v in results['msy_results'].items() 
-                               if v and v['success']}
-            if successful_models:
-                best_model = max(successful_models.items(), key=lambda x: x[1]['r_squared'])
-                best_model_name, best_model_results = best_model
-                
-                summary_data = [
-                    ('Model Terbaik', best_model_name, best_model_results.get('reference', '')),
-                    ('JTB (Jumlah Tangkapan yang Diperbolehkan)', f"{best_model_results['C_MSY']:,.1f} kg", 'Model Schaefer/Fox'),
-                    ('Upaya Optimal (F_MSY)', f"{best_model_results['F_MSY']:,.1f}", 'Model Schaefer/Fox'),
-                    ('CPUE Optimum (U_MSY)', f"{best_model_results['U_MSY']:.3f}", 'Model Schaefer/Fox'),
-                    ('Laju Pertumbuhan (r)', f"{best_model_results['r']:.3f}", 'FishBase'),
-                    ('Daya Dukung (K)', f"{best_model_results.get('K', 0):,.0f} kg", 'Formula Gulland (1971)'),
-                    ('Koefisien Determinasi (R²)', f"{best_model_results['r_squared']:.3f}", 'Statistik'),
-                    ('Jumlah Tahun Data', len(results['df_production']), 'Data Observasi'),
-                    ('Jumlah Alat Tangkap', len(st.session_state.gear_config['gears']), 'Data Observasi'),
-                    ('Alat Tangkap Standar', st.session_state.gear_config['standard_gear'], 'Data Observasi'),
-                    ('Rentang Tahun', f"{results['df_production']['Tahun'].min()} - {results['df_production']['Tahun'].max()}", 'Data Observasi')
-                ]
-                
-                if 'recommendations' in results:
-                    rec = results['recommendations']
-                    summary_data.append(('Status Stok', rec['status_stok'], 'FAO (2014)'))
-                    summary_data.append(('Rasio Produksi/JTB', f"{rec['production_ratio']:.1f}%", 'FAO (2014)'))
-                    summary_data.append(('Trend Produksi', rec['trend_status'], 'Analisis Statistik'))
-                    summary_data.append(('Estimasi Pemulihan', rec['waktu_pemulihan'], 'Model Pertumbuhan Logistik'))
-                
-                for i, (param, value, source) in enumerate(summary_data, start=4):
-                    worksheet_summary.write(f'A{i}', param)
-                    worksheet_summary.write(f'B{i}', value)
-                    worksheet_summary.write(f'C{i}', source)
-            
-            worksheet_summary.set_column('A:A', 35)
-            worksheet_summary.set_column('B:B', 25)
-            worksheet_summary.set_column('C:C', 30)
         
         processed_data = output.getvalue()
         return processed_data
@@ -1781,13 +2298,13 @@ def ekspor_hasil_analisis():
         st.error(f"❌ Error saat mengekspor hasil: {str(e)}")
         return None
 
-def render_ekspor_section():
-    """Render section untuk ekspor hasil dengan referensi"""
+def render_ekspor_excel_section():
+    """Render section untuk ekspor Excel"""
     if st.session_state.analysis_results is None:
         st.warning("📊 Hasil analisis belum tersedia. Silakan lakukan analisis terlebih dahulu.")
         return
     
-    st.header("📤 Ekspor Hasil Analisis")
+    st.header("📤 Ekspor Hasil Analisis ke Excel")
     
     col1, col2 = st.columns([2, 1])
     
@@ -1801,26 +2318,17 @@ def render_ekspor_section():
         **Sheet 'FPI Data'**: Hasil perhitungan Fishing Power Index
         **Sheet 'Upaya Standar'**: Hasil standardisasi upaya
         **Sheet 'CPUE Standar'**: Hasil CPUE standar per alat tangkap
-        **Sheet 'Hasil MSY'**: Perbandingan model Schaefer vs Fox **dengan referensi ilmiah**
-        **Sheet 'Rekomendasi'**: Rekomendasi pengelolaan dan JTB **dengan kriteria FAO**
-        **Sheet 'Referensi Ilmiah'**: **Daftar lengkap referensi dan sumber rumus**
-        **Sheet 'Ringkasan Analisis'**: Ringkasan lengkap **dengan sumber setiap parameter**
-        
-        *💡 INFORMASI REFERENSI:*
-        - **Semua rumus** dilengkapi dengan sumber ilmiah
-        - **Parameter biologis** dari FishBase
-        - **Kriteria status stok** berdasarkan FAO (2014)
-        - **Model MSY** dengan referensi ke paper asli
-        - **File berisi semua data dan hasil analisis dengan referensi yang valid**
+        **Sheet 'Hasil MSY'**: Perbandingan model Schaefer vs Fox
+        **Sheet 'Rekomendasi'**: Rekomendasi pengelolaan dan JTB
         """)
     
     with col2:
         export_data = ekspor_hasil_analisis()
         if export_data is not None:
             st.download_button(
-                label="📥 Download Hasil Analisis + Referensi",
+                label="📥 Download Hasil Analisis (Excel)",
                 data=export_data,
-                file_name=f"Hasil_Analisis_Referensi_IKAN_KURISI_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                file_name=f"Hasil_Analisis_IKAN_KURISI_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 type="primary"
@@ -1828,11 +2336,10 @@ def render_ekspor_section():
         
         st.markdown("""
         *🔧 Cara Penggunaan:*
-        1. Set parameter r di sidebar (default: 0.58 dari FishBase)
-        2. Lakukan analisis terlebih dahulu
-        3. Klik tombol download di samping
-        4. File Excel akan berisi **semua hasil dengan referensi ilmiah**
-        5. Gunakan untuk dokumentasi, laporan, publikasi, dan pengambilan keputusan
+        1. Lakukan analisis terlebih dahulu
+        2. Klik tombol download di samping
+        3. File Excel akan berisi semua hasil
+        4. Gunakan untuk dokumentasi dan pengambilan keputusan
         """)
 
 # ==============================================
@@ -1876,7 +2383,7 @@ def reset_data():
     st.success("✅ Data telah direset ke data contoh!")
 
 # ==============================================
-# FUNGSI UNTUK SIDEBAR KONFIGURASI DENGAN REFERENSI
+# FUNGSI UNTUK SIDEBAR KONFIGURASI
 # ==============================================
 def render_sidebar():
     """Render sidebar untuk konfigurasi aplikasi"""
@@ -1910,7 +2417,7 @@ def render_sidebar():
             max_value=2.0,
             value=st.session_state.r_value,
             step=0.01,
-            help="Parameter biologis r dari FishBase (default: 0.58 untuk Nemipterus spp). Sumber: https://www.fishbase.se/"
+            help="Parameter biologis r dari FishBase (default: 0.58 untuk Nemipterus spp)"
         )
         st.session_state.r_value = r_value
         
@@ -1979,11 +2486,11 @@ def render_sidebar():
         st.info("""
         **📌 Panduan Penggunaan:**
         1. Pilih sumber data (upload atau contoh)
-        2. Atur parameter r sesuai kebutuhan (referensi: FishBase)
-        3. Pilih model MSY yang akan digunakan (Schaefer 1954/Fox 1970)
+        2. Atur parameter r sesuai kebutuhan
+        3. Pilih model MSY yang akan digunakan
         4. Lakukan analisis di halaman utama
-        5. Lihat hasil dan rekomendasi dengan referensi ilmiah
-        6. Download hasil untuk dokumentasi dan publikasi
+        5. Lihat hasil dan rekomendasi
+        6. Download laporan PDF/Excel untuk dokumentasi
         """)
 
 # ==============================================
@@ -2011,19 +2518,19 @@ def lakukan_analisis():
             st.error("❌ Data produksi atau upaya kosong")
             return None
         
-        st.write("🧮 Menghitung CPUE (FAO, 1999)...")
+        st.write("🧮 Menghitung CPUE...")
         df_cpue = hitung_cpue(df_production, df_effort, gears)
         
-        st.write("📈 Menghitung FPI (Sparre & Venema, 1998)...")
+        st.write("📈 Menghitung FPI...")
         df_fpi = hitung_fpi_per_tahun(df_cpue, gears, config['standard_gear'])
         
         st.write("⚖️ Menghitung upaya standar...")
         df_standard_effort = hitung_upaya_standar(df_effort, df_fpi, gears)
         
-        st.write("📊 Menghitung CPUE standar (Hilborn & Walters, 1992)...")
+        st.write("📊 Menghitung CPUE standar...")
         df_standard_cpue = hitung_cpue_standar(df_production, df_standard_effort, gears)
         
-        st.write("🎯 Melakukan analisis MSY (Schaefer 1954/Fox 1970)...")
+        st.write("🎯 Melakukan analisis MSY...")
         standard_effort_total = df_standard_effort['Jumlah'].values
         cpue_standard_total = df_standard_cpue['CPUE_Standar_Total'].values
         production_total = df_production['Jumlah'].values
@@ -2036,7 +2543,7 @@ def lakukan_analisis():
             st.session_state.r_value
         )
         
-        st.write("📋 Menganalisis status stok (FAO, 2014)...")
+        st.write("📋 Menganalisis status stok...")
         years = df_production['Tahun'].values.tolist()
         recommendations = analisis_status_stok(msy_results, production_total, standard_effort_total, years)
         
@@ -2060,7 +2567,7 @@ def lakukan_analisis():
         return results
 
 # ==============================================
-# FUNGSI TAMPILAN HASIL ANALISIS DENGAN REFERENSI
+# FUNGSI TAMPILAN HASIL ANALISIS
 # ==============================================
 def render_hasil_analisis():
     """Tampilkan hasil analisis lengkap"""
@@ -2070,11 +2577,12 @@ def render_hasil_analisis():
     
     results = st.session_state.analysis_results
     
-    st.header("📊 HASIL ANALISIS LENGKAP DENGAN REFERENSI ILMIAH")
+    st.header("📊 HASIL ANALISIS LENGKAP")
     
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📈 Data Dasar", "📊 Grafik CPUE", "🎣 CPUE & FPI", 
-        "⚖️ Upaya Standar", "📈 CPUE Standar", "🎯 Hasil MSY", "💡 Rekomendasi"
+        "⚖️ Upaya Standar", "📈 CPUE Standar", "🎯 Hasil MSY", 
+        "💡 Rekomendasi", "📤 Excel", "📄 PDF"
     ])
     
     with tab1:
@@ -2190,6 +2698,12 @@ def render_hasil_analisis():
             render_rekomendasi(results['recommendations'], results['df_production'].to_dict('records'), results['years'])
         else:
             st.warning("Rekomendasi belum tersedia")
+    
+    with tab8:
+        render_ekspor_excel_section()
+    
+    with tab9:
+        render_ekspor_pdf_section()
 
 # ==============================================
 # FUNGSI UTAMA APLIKASI
@@ -2211,7 +2725,7 @@ def main():
     else:
         st.info("📊 Menggunakan data contoh PPN Karangantu, Banten")
     
-    col1, col2, col3 = st.columns([2, 2, 1])
+    col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
     
     with col1:
         if st.button("🚀 Lakukan Analisis", type="primary", use_container_width=True):
@@ -2227,8 +2741,14 @@ def main():
     
     with col3:
         if st.session_state.analysis_results:
-            if st.button("📤 Ekspor Hasil", use_container_width=True):
-                render_ekspor_section()
+            if st.button("📤 Excel", use_container_width=True):
+                render_ekspor_excel_section()
+                st.rerun()
+    
+    with col4:
+        if st.session_state.analysis_results:
+            if st.button("📄 PDF", use_container_width=True):
+                render_ekspor_pdf_section()
                 st.rerun()
     
     st.markdown("---")
@@ -2237,7 +2757,7 @@ def main():
         render_hasil_analisis()
     else:
         st.info("""
-        **📋 PANDUAN ANALISIS DENGAN REFERENSI ILMIAH:**
+        **📋 PANDUAN ANALISIS:**
         
         1. **Konfigurasi Data** (di sidebar):
            - Pilih sumber data (upload atau contoh)
@@ -2250,17 +2770,16 @@ def main():
         
         3. **Hasil Analisis** akan muncul di sini:
            - Data produksi dan upaya
-           - **GRAFIK CPUE** dengan analisis trend
-           - Perhitungan CPUE dan FPI dengan referensi
-           - Standardisasi upaya berdasarkan Sparre & Venema (1998)
+           - Grafik CPUE dengan analisis trend
+           - Perhitungan CPUE dan FPI
+           - Standardisasi upaya
            - Analisis MSY/JTB dengan parameter r dari FishBase
            - Status stok berdasarkan kriteria FAO (2014)
-           - Rekomendasi pengelolaan dengan referensi ilmiah
+           - Rekomendasi pengelolaan
         
         4. **Ekspor Hasil**:
-           - Download file Excel lengkap dengan referensi
-           - Berisi semua hasil analisis dengan sumber ilmiah
-           - Cocok untuk dokumentasi, laporan, dan publikasi
+           - **Excel**: Download semua data dan hasil analisis
+           - **PDF**: Laporan lengkap 7 halaman dengan referensi ilmiah
         
         **💡 INFORMASI PENTING:**
         - **Parameter r** dapat diubah di sidebar (default: 0.58 dari FishBase)
@@ -2269,13 +2788,6 @@ def main():
         - **CPUE (Catch Per Unit Effort)** adalah indikator efisiensi penangkapan
         - **Semua rumus** dilengkapi dengan referensi ilmiah
         - Analisis ini menggunakan pendekatan ilmiah untuk pengelolaan perikanan berkelanjutan
-        
-        **📚 REFERENSI UTAMA:**
-        - Schaefer (1954) - Model surplus production
-        - Fox (1970) - Model eksponensial
-        - Gulland (1971) - Formula MSY = rK/4
-        - FAO (2014) - Kriteria status stok
-        - FishBase - Parameter biologis Nemipterus spp
         """)
 
 # ==============================================
