@@ -30,9 +30,80 @@ st.set_page_config(
     page_icon="🐟"
 )
 
-st.title("🐟 WEBSITE PENDUGAAN POTENSI LESTARI IKAN KURISI (Nemipterus spp)")
-st.subheader("📍 Pelabuhan Perikanan Nusantara (PPN) Karangantu, Banten")
-st.caption("Analisis CPUE, MSY (JTB), dan Rekomendasi Pengelolaan | Satuan: Produksi (kg), Upaya (trip), CPUE (kg/trip)")
+# =====================================================
+# FIX FONT RENDERING
+# =====================================================
+def fix_font_rendering():
+    """Fix font rendering issues in Streamlit"""
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    /* Apply Inter font to all text */
+    * {
+        font-family: 'Inter', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif !important;
+    }
+    
+    /* Force proper encoding */
+    html, body {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+        font-feature-settings: "kern" 1;
+    }
+    
+    /* Fix specific elements */
+    .stRadio label, .stCheckbox label, .stSelectbox label,
+    .stNumberInput label, .stMultiselect label, .stTextInput label {
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Fix headers */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Fix markdown text */
+    .stMarkdown {
+        font-family: 'Inter', sans-serif !important;
+    }
+    
+    /* Fix sidebar text */
+    [data-testid="stSidebar"] {
+        font-family: 'Inter', sans-serif !important;
+    }
+    
+    /* Fix buttons */
+    .stButton > button {
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Fix metric cards */
+    [data-testid="stMetricValue"] {
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Fix expanders */
+    [data-testid="stExpander"] {
+        font-family: 'Inter', sans-serif !important;
+    }
+    
+    /* Fix tabs */
+    button[data-baseweb="tab"] {
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Fix checkbox */
+    .stCheckbox label {
+        font-family: 'Inter', sans-serif !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # =====================================================
 # INISIALISASI SESSION STATE
@@ -194,7 +265,7 @@ def render_referensi_ilmiah():
         
         **Sumber:** Sparre, P., & Venema, S.C. (1998). *Introduction to tropical fish stock assessment*. FAO Fisheries Technical Paper.
         
-        #### **6. UPAAYA STANDAR (STANDARDIZED EFFORT)**
+        #### **6. UPAYA STANDAR (STANDARDIZED EFFORT)**
         **Rumus:** F_std = F × FPI  
         **Keterangan:** Upaya standar untuk mengkompensasi perbedaan daya tangkap alat
         
@@ -303,10 +374,10 @@ def generate_pdf_report(results, r_value):
         cover_table = Table(cover_info, colWidths=[150, 350])
         cover_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#E5E7EB')),
-            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#1F2937')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#1F2937')),
             ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
             ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
             ('TOPPADDING', (0, 0), (-1, -1), 12),
@@ -370,7 +441,7 @@ def generate_pdf_report(results, r_value):
                 ('BACKGROUND', (1, 0), (1, 0), status_color),
                 ('TEXTCOLOR', (1, 0), (1, 0), colors.white),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F9FAFB')),
-                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, -1), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
                 ('TOPPADDING', (0, 0), (-1, -1), 8),
@@ -2901,7 +2972,7 @@ def reset_data():
 def render_sidebar():
     """Render sidebar untuk konfigurasi aplikasi"""
     with st.sidebar:
-        st.header("⚙️ Konfigurasi Analisis")
+        st.markdown("<h2 style='color: #1E3A8A;'>⚙️ Konfigurasi Analisis</h2>", unsafe_allow_html=True)
         
         # Tampilkan referensi ilmiah di sidebar
         render_referensi_ilmiah()
@@ -2911,7 +2982,7 @@ def render_sidebar():
         # Menu utama
         menu_options = ["📊 Analisis Utama", "✏️ Input Manual", "⚙️ Konfigurasi Lanjutan", "📤 Upload Data", "📋 Template"]
         menu_choice = st.radio(
-            "Pilih Menu",
+            "**Pilih Menu:**",
             menu_options,
             index=0,
             help="Pilih menu yang ingin diakses"
@@ -2944,10 +3015,12 @@ def render_sidebar():
             st.session_state.show_config_section = False
             st.session_state.show_template_section = False
         
-        # Parameter biologis (selalu ditampilkan)
-        st.subheader("🧬 Parameter Biologis")
+        # Parameter biologis
+        st.markdown("---")
+        st.markdown("<h3 style='color: #3B82F6;'>🧬 Parameter Biologis</h3>", unsafe_allow_html=True)
+        
         r_value = st.number_input(
-            "Nilai r (laju pertumbuhan intrinsik)",
+            "**Nilai r (laju pertumbuhan intrinsik)**",
             min_value=0.1,
             max_value=2.0,
             value=st.session_state.r_value,
@@ -2958,11 +3031,11 @@ def render_sidebar():
         
         st.info(f"**Nilai r saat ini:** {r_value:.3f} (FishBase)")
         
-        # Pilih model MSY (selalu ditampilkan)
-        st.subheader("📐 Pilih Model MSY")
+        # Pilih model MSY
+        st.markdown("<h3 style='color: #3B82F6;'>📐 Pilih Model MSY</h3>", unsafe_allow_html=True)
         model_options = ['Schaefer', 'Fox']
         selected_models = st.multiselect(
-            "Pilih model untuk analisis:",
+            "**Pilih model untuk analisis:**",
             options=model_options,
             default=st.session_state.selected_models,
             help="Pilih model yang akan digunakan dalam analisis MSY"
@@ -2977,7 +3050,7 @@ def render_sidebar():
         st.markdown("---")
         
         # Informasi data saat ini
-        st.subheader("📋 Informasi Data Saat Ini")
+        st.markdown("<h3 style='color: #3B82F6;'>📋 Informasi Data Saat Ini</h3>", unsafe_allow_html=True)
         config = get_config()
         st.write(f"**Jumlah alat tangkap:** {len(config['gears'])}")
         st.write(f"**Jumlah tahun:** {len(config['years'])}")
@@ -2991,7 +3064,7 @@ def render_sidebar():
         st.markdown("---")
         
         # Tombol aksi cepat
-        st.subheader("🚀 Aksi Cepat")
+        st.markdown("<h3 style='color: #3B82F6;'>🚀 Aksi Cepat</h3>", unsafe_allow_html=True)
         
         if st.button("🔄 Reset Semua Data", type="secondary", use_container_width=True):
             reset_data()
@@ -3004,11 +3077,11 @@ def render_sidebar():
         
         st.info("""
         **📌 Panduan Penggunaan:**
-        1. Pilih menu di atas
-        2. Atur parameter r dan model
-        3. Input/upload data
-        4. Lakukan analisis
-        5. Download hasil
+        1. **Pilih menu** di atas
+        2. **Atur parameter** r dan model
+        3. **Input/upload** data
+        4. **Lakukan analisis**
+        5. **Download hasil**
         """)
 
 # ==============================================
@@ -3230,6 +3303,28 @@ def main():
     """Fungsi utama aplikasi"""
     initialize_session_state()
     
+    # FIX FONT RENDERING
+    fix_font_rendering()
+    
+    # JUDUL UTAMA
+    st.markdown("""
+    <div style='text-align: center; padding: 1rem 0;'>
+        <h1 style='color: #1E3A8A; margin-bottom: 0.5rem; font-size: 2.5rem; font-weight: 700;'>
+            🐟 WEBSITE PENDUGAAN POTENSI LESTARI IKAN KURISI
+        </h1>
+        <h3 style='color: #3B82F6; margin-top: 0; margin-bottom: 0.5rem; font-size: 1.5rem; font-weight: 600;'>
+            (Nemipterus spp)
+        </h3>
+        <h4 style='color: #6B7280; margin-top: 0; margin-bottom: 0.5rem; font-size: 1.2rem; font-weight: 500;'>
+            📍 Pelabuhan Perikanan Nusantara (PPN) Karangantu, Banten
+        </h4>
+        <p style='color: #9CA3AF; font-size: 0.9rem; margin-top: 0.5rem;'>
+            Analisis CPUE, MSY (JTB), dan Rekomendasi Pengelolaan | Satuan: Produksi (kg), Upaya (trip), CPUE (kg/trip)
+        </p>
+    </div>
+    <hr style='border: 1px solid #E5E7EB; margin: 1rem 0 2rem 0;'>
+    """, unsafe_allow_html=True)
+    
     render_sidebar()
     
     # Tampilkan halaman berdasarkan pilihan menu
@@ -3250,7 +3345,7 @@ def main():
         return
     
     # Halaman utama analisis
-    st.header("🔬 Analisis Potensi Lestari Ikan Kurisi")
+    st.markdown("<h2 style='color: #1E3A8A;'>🔬 Analisis Potensi Lestari Ikan Kurisi</h2>", unsafe_allow_html=True)
     
     # Tampilkan informasi metadata jika ada
     if 'metadata' in st.session_state:
@@ -3289,30 +3384,30 @@ def main():
         render_hasil_analisis()
     else:
         st.info("""
-        **📋 PANDUAN ANALISIS:**
+        ## 📋 PANDUAN ANALISIS:
         
-        1. **Pilih Menu** (di sidebar):
-           - **Analisis Utama**: Halaman ini
-           - **Input Manual**: Input data secara manual
-           - **Konfigurasi Lanjutan**: Atur alat tangkap dan faktor konversi
-           - **Upload Data**: Upload data dari Excel/CSV
-           - **Template**: Download template Excel
+        ### **1. PILIH MENU** (di sidebar):
+        - **Analisis Utama**: Halaman ini
+        - **Input Manual**: Input data secara manual
+        - **Konfigurasi Lanjutan**: Atur alat tangkap dan faktor konversi
+        - **Upload Data**: Upload data dari Excel/CSV
+        - **Template**: Download template Excel
         
-        2. **Atur Parameter** (di sidebar):
-           - Parameter r (laju pertumbuhan intrinsik dari FishBase)
-           - Pilih model MSY (Schaefer 1954/Fox 1970)
+        ### **2. ATUR PARAMETER** (di sidebar):
+        - **Parameter r** (laju pertumbuhan intrinsik dari FishBase)
+        - **Pilih model MSY** (Schaefer 1954 / Fox 1970)
         
-        3. **Lakukan Analisis**:
-           - Klik tombol "🚀 Lakukan Analisis"
+        ### **3. LAKUKAN ANALISIS**:
+        - Klik tombol **"🚀 Lakukan Analisis"**
         
-        4. **Hasil Analisis** akan muncul di tab:
-           - Data dasar
-           - Grafik CPUE
-           - Hasil MSY/JTB
-           - Rekomendasi
-           - Ekspor Excel/PDF
+        ### **4. HASIL ANALISIS** akan muncul di tab:
+        - Data dasar
+        - Grafik CPUE
+        - Hasil MSY/JTB
+        - Rekomendasi
+        - Ekspor Excel/PDF
         
-        **💡 FITUR BARU:**
+        ### **💡 FITUR BARU:**
         - **Input Manual**: Input data produksi dan upaya per tahun
         - **Konfigurasi Alat Tangkap**: Tambah/hapus alat tangkap
         - **Faktor Konversi**: Ubah satuan dan kalibrasi
