@@ -97,6 +97,37 @@ def initialize_session_state():
     
     if 'show_upload_section' not in st.session_state:
         st.session_state.show_upload_section = False
+    
+    # State untuk menu baru
+    if 'show_input_section' not in st.session_state:
+        st.session_state.show_input_section = False
+    if 'show_config_section' not in st.session_state:
+        st.session_state.show_config_section = False
+    if 'show_template_section' not in st.session_state:
+        st.session_state.show_template_section = False
+    
+    # State untuk konfigurasi lanjutan
+    if 'advanced_gears_config' not in st.session_state:
+        st.session_state.advanced_gears_config = []
+    
+    if 'conversion_factors' not in st.session_state:
+        st.session_state.conversion_factors = {
+            'satuan_produksi': 'kg',
+            'satuan_upaya': 'trip',
+            'faktor_konversi_kg_ton': 0.001,
+            'kalibrasi_cpue': 1.0,
+            'tahun_dasar_kalibrasi': 2018
+        }
+    
+    if 'metadata' not in st.session_state:
+        st.session_state.metadata = {
+            'lokasi': 'PPN Karangantu, Banten',
+            'spesies': 'Nemipterus spp (Ikan Kurisi)',
+            'sumber_data': 'Data contoh',
+            'kontak_pengelola': '',
+            'catatan_khusus': '',
+            'versi_analisis': '1.0'
+        }
 
 # =====================================================
 # REFERENSI DAN SUMBER ILMIAH
@@ -663,8 +694,7 @@ def generate_pdf_report(results, r_value):
             story.append(Spacer(1, 12))
             
             # Model terbaik
-            best_model = max(successful_models.items(), key=lambda x: x[1]['r_squared'])
-            best_model_name, best_model_results = best_model
+            best_model_name, best_model_results = max(successful_models.items(), key=lambda x: x[1]['r_squared'])
             
             story.append(Paragraph(f"<b>MODEL TERBAIK: {best_model_name} (R² = {best_model_results['r_squared']:.3f})</b>", heading_style))
             
@@ -1300,6 +1330,489 @@ def render_upload_section():
         st.rerun()
     
     return None
+
+# ==============================================
+# FUNGSI INPUT MANUAL DAN KONFIGURASI ALAT TANGKAP
+# ==============================================
+def render_manual_input_section():
+    """Section untuk input manual data produksi dan upaya"""
+    st.header("✏️ Input Data Manual")
+    
+    config = get_config()
+    
+    with st.expander("⚙️ Konfigurasi Alat Tangkap dan Tahun", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            num_gears = st.number_input(
+                "Jumlah Alat Tangkap",
+                min_value=1,
+                max_value=10,
+                value=len(config['gears']),
+                step=1,
+                key="input_num_gears"
+            )
+        
+        with col2:
+            start_year = st.number_input(
+                "Tahun Awal",
+                min_value=2000,
+                max_value=2030,
+                value=min(config['years']),
+                step=1,
+                key="input_start_year"
+            )
+        
+        with col3:
+            num_years = st.number_input(
+                "Jumlah Tahun",
+                min_value=3,
+                max_value=20,
+                value=config['num_years'],
+                step=1,
+                key="input_num_years"
+            )
+        
+        # Generate years
+        years = generate_years(start_year, num_years)
+        
+        # Input nama alat tangkap
+        st.subheader("Nama Alat Tangkap")
+        
+        if 'temp_gears' not in st.session_state:
+            st.session_state.temp_gears = config['gears'].copy() if len(config['gears']) >= num_gears else [f"Alat_Tangkap_{i+1}" for i in range(num_gears)]
+        if 'temp_display_names' not in st.session_state:
+            st.session_state.temp_display_names = config['display_names'].copy() if len(config['display_names']) >= num_gears else [f"Alat Tangkap {i+1}" for i in range(num_gears)]
+        
+        # Update jika jumlah berubah
+        if len(st.session_state.temp_gears) != num_gears:
+            if num_gears > len(st.session_state.temp_gears):
+                for i in range(len(st.session_state.temp_gears), num_gears):
+                    st.session_state.temp_gears.append(f"Alat_Tangkap_{i+1}")
+                    st.session_state.temp_display_names.append(f"Alat Tangkap {i+1}")
+            else:
+                st.session_state.temp_gears = st.session_state.temp_gears[:num_gears]
+                st.session_state.temp_display_names = st.session_state.temp_display_names[:num_gears]
+        
+        # Input untuk setiap alat tangkap
+        gear_cols = st.columns(2)
+        for i in range(num_gears):
+            with gear_cols[i % 2]:
+                col1, col2 = st.columns([3, 2])
+                with col1:
+                    display_name = st.text_input(
+                        f"Nama Display Alat {i+1}",
+                        value=st.session_state.temp_display_names[i],
+                        key=f"display_name_{i}"
+                    )
+                    st.session_state.temp_display_names[i] = display_name
+                
+                with col2:
+                    gear_code = st.text_input(
+                        f"Kode Alat {i+1}",
+                        value=st.session_state.temp_gears[i],
+                        key=f"gear_code_{i}"
+                    )
+                    st.session_state.temp_gears[i] = gear_code
+        
+        # Tombol update konfigurasi
+        if st.button("💾 Simpan Konfigurasi Alat Tangkap", type="primary", use_container_width=True):
+            save_config(
+                st.session_state.temp_gears,
+                st.session_state.temp_display_names,
+                st.session_state.temp_gears[0] if st.session_state.temp_gears else 'Alat_Tangkap_1',
+                years,
+                num_years
+            )
+            st.success("✅ Konfigurasi alat tangkap disimpan!")
+            st.rerun()
+    
+    # Input data produksi
+    st.markdown("---")
+    st.subheader("📊 Input Data Produksi (kg)")
+    
+    # Buat dataframe kosong untuk input
+    production_input = pd.DataFrame(index=years, columns=['Tahun'] + st.session_state.temp_gears)
+    production_input['Tahun'] = years
+    
+    # Buat input untuk setiap tahun dan alat
+    for i, year in enumerate(years):
+        st.markdown(f"**Tahun {year}**")
+        cols = st.columns(len(st.session_state.temp_gears) + 1)
+        
+        with cols[0]:
+            st.markdown(f"<div style='padding-top: 10px;'>{year}</div>", unsafe_allow_html=True)
+        
+        for j, gear in enumerate(st.session_state.temp_gears):
+            with cols[j + 1]:
+                if f"prod_{year}_{gear}" not in st.session_state:
+                    # Cari nilai existing jika ada
+                    existing_value = 0
+                    for prod in st.session_state.data_tables['production']:
+                        if prod['Tahun'] == year and gear in prod:
+                            existing_value = prod[gear]
+                            break
+                    st.session_state[f"prod_{year}_{gear}"] = existing_value
+                
+                value = st.number_input(
+                    f"",
+                    min_value=0.0,
+                    value=float(st.session_state[f"prod_{year}_{gear}"]),
+                    step=100.0,
+                    format="%.1f",
+                    key=f"prod_input_{year}_{gear}"
+                )
+                production_input.loc[production_input['Tahun'] == year, gear] = value
+                st.session_state[f"prod_{year}_{gear}"] = value
+    
+    # Input data upaya
+    st.markdown("---")
+    st.subheader("🎣 Input Data Upaya (trip)")
+    
+    # Buat dataframe kosong untuk input upaya
+    effort_input = pd.DataFrame(index=years, columns=['Tahun'] + st.session_state.temp_gears)
+    effort_input['Tahun'] = years
+    
+    # Buat input untuk setiap tahun dan alat
+    for i, year in enumerate(years):
+        st.markdown(f"**Tahun {year}**")
+        cols = st.columns(len(st.session_state.temp_gears) + 1)
+        
+        with cols[0]:
+            st.markdown(f"<div style='padding-top: 10px;'>{year}</div>", unsafe_allow_html=True)
+        
+        for j, gear in enumerate(st.session_state.temp_gears):
+            with cols[j + 1]:
+                if f"eff_{year}_{gear}" not in st.session_state:
+                    # Cari nilai existing jika ada
+                    existing_value = 0
+                    for eff in st.session_state.data_tables['effort']:
+                        if eff['Tahun'] == year and gear in eff:
+                            existing_value = eff[gear]
+                            break
+                    st.session_state[f"eff_{year}_{gear}"] = existing_value
+                
+                value = st.number_input(
+                    f"",
+                    min_value=0.0,
+                    value=float(st.session_state[f"eff_{year}_{gear}"]),
+                    step=10.0,
+                    format="%.0f",
+                    key=f"eff_input_{year}_{gear}"
+                )
+                effort_input.loc[effort_input['Tahun'] == year, gear] = value
+                st.session_state[f"eff_{year}_{gear}"] = value
+    
+    # Tombol untuk menyimpan data manual
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("💾 Simpan Data Manual", type="primary", use_container_width=True):
+            # Konversi dataframe ke format aplikasi
+            production_data = []
+            effort_data = []
+            
+            for year in years:
+                # Data produksi
+                prod_row = {'Tahun': year}
+                total_prod = 0
+                for gear in st.session_state.temp_gears:
+                    value = production_input.loc[production_input['Tahun'] == year, gear].values[0]
+                    if pd.isna(value):
+                        value = 0
+                    prod_row[gear] = float(value)
+                    total_prod += float(value)
+                prod_row['Jumlah'] = total_prod
+                production_data.append(prod_row)
+                
+                # Data upaya
+                eff_row = {'Tahun': year}
+                total_eff = 0
+                for gear in st.session_state.temp_gears:
+                    value = effort_input.loc[effort_input['Tahun'] == year, gear].values[0]
+                    if pd.isna(value):
+                        value = 0
+                    eff_row[gear] = float(value)
+                    total_eff += float(value)
+                eff_row['Jumlah'] = total_eff
+                effort_data.append(eff_row)
+            
+            # Simpan ke session state
+            st.session_state.data_tables = {
+                'production': production_data,
+                'effort': effort_data
+            }
+            
+            # Update konfigurasi
+            save_config(
+                st.session_state.temp_gears,
+                st.session_state.temp_display_names,
+                st.session_state.temp_gears[0] if st.session_state.temp_gears else 'Alat_Tangkap_1',
+                years,
+                num_years
+            )
+            
+            # Reset hasil analisis
+            st.session_state.analysis_results = None
+            
+            st.success("✅ Data manual berhasil disimpan!")
+            st.rerun()
+    
+    with col2:
+        if st.button("📊 Preview Data", use_container_width=True):
+            st.subheader("Preview Data Produksi (kg)")
+            st.dataframe(production_input.set_index('Tahun'), use_container_width=True)
+            
+            st.subheader("Preview Data Upaya (trip)")
+            st.dataframe(effort_input.set_index('Tahun'), use_container_width=True)
+    
+    with col3:
+        if st.button("🔄 Reset Input", use_container_width=True):
+            # Hapus semua session state untuk input
+            keys_to_delete = []
+            for key in st.session_state.keys():
+                if key.startswith(('prod_', 'eff_', 'temp_')):
+                    keys_to_delete.append(key)
+            
+            for key in keys_to_delete:
+                del st.session_state[key]
+            
+            st.success("✅ Input data direset!")
+            st.rerun()
+    
+    # Tampilkan data yang tersimpan
+    st.markdown("---")
+    st.subheader("📋 Data Tersimpan Saat Ini")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Data Produksi (kg)**")
+        current_prod = pd.DataFrame(st.session_state.data_tables['production'])
+        st.dataframe(
+            current_prod.style.format({
+                col: "{:,.1f}" for col in current_prod.columns if col != 'Tahun'
+            }), 
+            use_container_width=True
+        )
+    
+    with col2:
+        st.write("**Data Upaya (trip)**")
+        current_eff = pd.DataFrame(st.session_state.data_tables['effort'])
+        st.dataframe(
+            current_eff.style.format({
+                col: "{:,.0f}" for col in current_eff.columns if col != 'Tahun'
+            }), 
+            use_container_width=True
+        )
+    
+    # Tombol kembali
+    if st.button("← Kembali ke Menu Utama", use_container_width=True):
+        st.session_state.show_input_section = False
+        st.rerun()
+
+def render_advanced_config_section():
+    """Section untuk konfigurasi alat tangkap yang lengkap"""
+    st.header("⚙️ Konfigurasi Alat Tangkap Lanjutan")
+    
+    config = get_config()
+    
+    tab1, tab2, tab3 = st.tabs(["📋 Daftar Alat Tangkap", "⚖️ Faktor Konversi", "📊 Metadata"])
+    
+    with tab1:
+        st.subheader("Daftar Alat Tangkap yang Digunakan")
+        
+        if 'advanced_gears_config' not in st.session_state or not st.session_state.advanced_gears_config:
+            st.session_state.advanced_gears_config = []
+            for gear, display_name in zip(config['gears'], config['display_names']):
+                st.session_state.advanced_gears_config.append({
+                    'kode': gear,
+                    'nama_display': display_name,
+                    'tipe_alat': 'Jaring Insang',
+                    'daya_tangkap': 1.0,
+                    'selektivitas': 'Sedang',
+                    'keterangan': ''
+                })
+        
+        # Tampilkan tabel konfigurasi
+        config_df = pd.DataFrame(st.session_state.advanced_gears_config)
+        edited_df = st.data_editor(
+            config_df,
+            column_config={
+                'kode': st.column_config.TextColumn("Kode", width="medium", required=True),
+                'nama_display': st.column_config.TextColumn("Nama Display", width="large", required=True),
+                'tipe_alat': st.column_config.SelectboxColumn(
+                    "Tipe Alat",
+                    options=['Jaring Insang', 'Jaring Hela', 'Bagan', 'Pancing', 'Rawai', 'Perangkap', 'Lainnya']
+                ),
+                'daya_tangkap': st.column_config.NumberColumn(
+                    "Daya Tangkap Relatif",
+                    min_value=0.1,
+                    max_value=10.0,
+                    step=0.1,
+                    format="%.1f"
+                ),
+                'selektivitas': st.column_config.SelectboxColumn(
+                    "Selektivitas",
+                    options=['Rendah', 'Sedang', 'Tinggi', 'Sangat Tinggi']
+                ),
+                'keterangan': st.column_config.TextColumn("Keterangan", width="large")
+            },
+            use_container_width=True,
+            num_rows="dynamic",
+            key="gear_config_editor"
+        )
+        
+        if st.button("💾 Simpan Konfigurasi Alat", type="primary", use_container_width=True):
+            # Update kode dan nama display
+            new_gears = edited_df['kode'].tolist()
+            new_display_names = edited_df['nama_display'].tolist()
+            
+            # Update data tables untuk menambahkan/ menghapus kolom
+            current_production = pd.DataFrame(st.session_state.data_tables['production'])
+            current_effort = pd.DataFrame(st.session_state.data_tables['effort'])
+            
+            # Hapus kolom yang tidak ada lagi
+            for gear in config['gears']:
+                if gear not in new_gears:
+                    if gear in current_production.columns:
+                        current_production = current_production.drop(columns=[gear])
+                    if gear in current_effort.columns:
+                        current_effort = current_effort.drop(columns=[gear])
+            
+            # Tambahkan kolom baru
+            for gear in new_gears:
+                if gear not in current_production.columns:
+                    current_production[gear] = 0.0
+                if gear not in current_effort.columns:
+                    current_effort[gear] = 0.0
+            
+            # Hitung ulang jumlah
+            current_production['Jumlah'] = current_production[new_gears].sum(axis=1)
+            current_effort['Jumlah'] = current_effort[new_gears].sum(axis=1)
+            
+            # Simpan kembali ke session state
+            st.session_state.data_tables['production'] = current_production.to_dict('records')
+            st.session_state.data_tables['effort'] = current_effort.to_dict('records')
+            
+            # Update konfigurasi
+            save_config(
+                new_gears,
+                new_display_names,
+                new_gears[0] if new_gears else 'Alat_Tangkap_1',
+                config['years'],
+                config['num_years']
+            )
+            
+            # Simpan konfigurasi lanjutan
+            st.session_state.advanced_gears_config = edited_df.to_dict('records')
+            
+            # Reset hasil analisis
+            st.session_state.analysis_results = None
+            
+            st.success("✅ Konfigurasi alat tangkap berhasil disimpan!")
+            st.rerun()
+    
+    with tab2:
+        st.subheader("Faktor Konversi dan Kalibrasi")
+        
+        if 'conversion_factors' not in st.session_state:
+            st.session_state.conversion_factors = {
+                'satuan_produksi': 'kg',
+                'satuan_upaya': 'trip',
+                'faktor_konversi_kg_ton': 0.001,
+                'kalibrasi_cpue': 1.0,
+                'tahun_dasar_kalibrasi': min(config['years'])
+            }
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            satuan_produksi = st.selectbox(
+                "Satuan Produksi",
+                ['kg', 'ton', 'ekor'],
+                index=['kg', 'ton', 'ekor'].index(st.session_state.conversion_factors['satuan_produksi'])
+            )
+            
+            satuan_upaya = st.selectbox(
+                "Satuan Upaya",
+                ['trip', 'hari', 'unit'],
+                index=['trip', 'hari', 'unit'].index(st.session_state.conversion_factors['satuan_upaya'])
+            )
+            
+            faktor_konversi = st.number_input(
+                "Faktor Konversi ke kg",
+                min_value=0.001,
+                max_value=1000.0,
+                value=st.session_state.conversion_factors['faktor_konversi_kg_ton'],
+                step=0.001,
+                help="Faktor untuk mengkonversi satuan produksi ke kg"
+            )
+        
+        with col2:
+            kalibrasi_cpue = st.number_input(
+                "Faktor Kalibrasi CPUE",
+                min_value=0.1,
+                max_value=10.0,
+                value=st.session_state.conversion_factors['kalibrasi_cpue'],
+                step=0.1,
+                help="Faktor koreksi untuk CPUE"
+            )
+            
+            tahun_dasar = st.number_input(
+                "Tahun Dasar Kalibrasi",
+                min_value=min(config['years']),
+                max_value=max(config['years']),
+                value=st.session_state.conversion_factors['tahun_dasar_kalibrasi'],
+                step=1
+            )
+        
+        if st.button("💾 Simpan Faktor Konversi", type="primary", use_container_width=True):
+            st.session_state.conversion_factors = {
+                'satuan_produksi': satuan_produksi,
+                'satuan_upaya': satuan_upaya,
+                'faktor_konversi_kg_ton': faktor_konversi,
+                'kalibrasi_cpue': kalibrasi_cpue,
+                'tahun_dasar_kalibrasi': tahun_dasar
+            }
+            st.success("✅ Faktor konversi disimpan!")
+    
+    with tab3:
+        st.subheader("Metadata dan Dokumentasi")
+        
+        if 'metadata' not in st.session_state:
+            st.session_state.metadata = {
+                'lokasi': 'PPN Karangantu, Banten',
+                'spesies': 'Nemipterus spp (Ikan Kurisi)',
+                'sumber_data': 'Data contoh',
+                'kontak_pengelola': '',
+                'catatan_khusus': '',
+                'versi_analisis': '1.0'
+            }
+        
+        lokasi = st.text_input("Lokasi", value=st.session_state.metadata['lokasi'])
+        spesies = st.text_input("Spesies", value=st.session_state.metadata['spesies'])
+        sumber_data = st.text_input("Sumber Data", value=st.session_state.metadata['sumber_data'])
+        kontak = st.text_input("Kontak Pengelola", value=st.session_state.metadata['kontak_pengelola'])
+        catatan = st.text_area("Catatan Khusus", value=st.session_state.metadata['catatan_khusus'], height=100)
+        versi = st.text_input("Versi Analisis", value=st.session_state.metadata['versi_analisis'])
+        
+        if st.button("💾 Simpan Metadata", type="primary", use_container_width=True):
+            st.session_state.metadata = {
+                'lokasi': lokasi,
+                'spesies': spesies,
+                'sumber_data': sumber_data,
+                'kontak_pengelola': kontak,
+                'catatan_khusus': catatan,
+                'versi_analisis': versi
+            }
+            st.success("✅ Metadata disimpan!")
+    
+    # Tombol kembali
+    if st.button("← Kembali ke Menu Utama", use_container_width=True):
+        st.session_state.show_config_section = False
+        st.rerun()
 
 # ==============================================
 # FUNGSI GRAFIK CPUE DENGAN REFERENSI
@@ -2395,21 +2908,43 @@ def render_sidebar():
         
         st.markdown("---")
         
-        data_source = st.radio(
-            "Pilih Sumber Data",
-            ["📁 Data Upload", "📊 Data Contoh"],
-            index=1,
-            help="Pilih antara mengupload data sendiri atau menggunakan data contoh"
+        # Menu utama
+        menu_options = ["📊 Analisis Utama", "✏️ Input Manual", "⚙️ Konfigurasi Lanjutan", "📤 Upload Data", "📋 Template"]
+        menu_choice = st.radio(
+            "Pilih Menu",
+            menu_options,
+            index=0,
+            help="Pilih menu yang ingin diakses"
         )
         
-        if data_source == "📁 Data Upload":
-            st.session_state.use_uploaded_data = True
-            if st.button("📤 Buka Menu Upload", use_container_width=True):
-                st.session_state.show_upload_section = True
-        else:
-            st.session_state.use_uploaded_data = False
+        # Set state berdasarkan pilihan menu
+        if menu_choice == "✏️ Input Manual":
+            st.session_state.show_input_section = True
             st.session_state.show_upload_section = False
+            st.session_state.show_config_section = False
+            st.session_state.show_template_section = False
+        elif menu_choice == "⚙️ Konfigurasi Lanjutan":
+            st.session_state.show_input_section = False
+            st.session_state.show_upload_section = False
+            st.session_state.show_config_section = True
+            st.session_state.show_template_section = False
+        elif menu_choice == "📤 Upload Data":
+            st.session_state.show_input_section = False
+            st.session_state.show_upload_section = True
+            st.session_state.show_config_section = False
+            st.session_state.show_template_section = False
+        elif menu_choice == "📋 Template":
+            st.session_state.show_input_section = False
+            st.session_state.show_upload_section = False
+            st.session_state.show_config_section = False
+            st.session_state.show_template_section = True
+        else:
+            st.session_state.show_input_section = False
+            st.session_state.show_upload_section = False
+            st.session_state.show_config_section = False
+            st.session_state.show_template_section = False
         
+        # Parameter biologis (selalu ditampilkan)
         st.subheader("🧬 Parameter Biologis")
         r_value = st.number_input(
             "Nilai r (laju pertumbuhan intrinsik)",
@@ -2423,6 +2958,7 @@ def render_sidebar():
         
         st.info(f"**Nilai r saat ini:** {r_value:.3f} (FishBase)")
         
+        # Pilih model MSY (selalu ditampilkan)
         st.subheader("📐 Pilih Model MSY")
         model_options = ['Schaefer', 'Fox']
         selected_models = st.multiselect(
@@ -2438,59 +2974,41 @@ def render_sidebar():
         else:
             st.session_state.selected_models = selected_models
         
-        if not st.session_state.use_uploaded_data:
-            st.subheader("🎣 Konfigurasi Alat Tangkap")
-            
-            config = get_config()
-            
-            num_gears = st.number_input(
-                "Jumlah Alat Tangkap",
-                min_value=1,
-                max_value=10,
-                value=len(config['gears']),
-                step=1,
-                help="Jumlah alat tangkap yang akan dianalisis"
-            )
-            
-            num_years = st.number_input(
-                "Jumlah Tahun",
-                min_value=3,
-                max_value=20,
-                value=config['num_years'],
-                step=1,
-                help="Jumlah tahun data yang akan dianalisis"
-            )
-            
-            start_year = st.number_input(
-                "Tahun Awal",
-                min_value=2000,
-                max_value=2030,
-                value=min(config['years']),
-                step=1,
-                help="Tahun awal data"
-            )
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🔄 Update Konfigurasi", use_container_width=True):
-                    years = generate_years(start_year, num_years)
-                    save_config(config['gears'], config['display_names'], 
-                              config['standard_gear'], years, num_years)
-                    st.success("✅ Konfigurasi diperbarui!")
-            
-            with col2:
-                if st.button("🔄 Reset Data", use_container_width=True):
-                    reset_data()
+        st.markdown("---")
+        
+        # Informasi data saat ini
+        st.subheader("📋 Informasi Data Saat Ini")
+        config = get_config()
+        st.write(f"**Jumlah alat tangkap:** {len(config['gears'])}")
+        st.write(f"**Jumlah tahun:** {len(config['years'])}")
+        st.write(f"**Rentang tahun:** {min(config['years'])} - {max(config['years'])}")
+        
+        if st.session_state.analysis_results:
+            st.success("✅ Analisis tersedia")
+        else:
+            st.warning("⚠ Belum ada analisis")
         
         st.markdown("---")
+        
+        # Tombol aksi cepat
+        st.subheader("🚀 Aksi Cepat")
+        
+        if st.button("🔄 Reset Semua Data", type="secondary", use_container_width=True):
+            reset_data()
+            # Reset juga state tambahan
+            for key in ['temp_gears', 'temp_display_names', 'advanced_gears_config']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.success("✅ Data direset ke contoh!")
+            st.rerun()
+        
         st.info("""
         **📌 Panduan Penggunaan:**
-        1. Pilih sumber data (upload atau contoh)
-        2. Atur parameter r sesuai kebutuhan
-        3. Pilih model MSY yang akan digunakan
-        4. Lakukan analisis di halaman utama
-        5. Lihat hasil dan rekomendasi
-        6. Download laporan PDF/Excel untuk dokumentasi
+        1. Pilih menu di atas
+        2. Atur parameter r dan model
+        3. Input/upload data
+        4. Lakukan analisis
+        5. Download hasil
         """)
 
 # ==============================================
@@ -2714,16 +3232,30 @@ def main():
     
     render_sidebar()
     
+    # Tampilkan halaman berdasarkan pilihan menu
     if st.session_state.get('show_upload_section', False):
         render_upload_section()
         return
     
+    if st.session_state.get('show_input_section', False):
+        render_manual_input_section()
+        return
+    
+    if st.session_state.get('show_config_section', False):
+        render_advanced_config_section()
+        return
+    
+    if st.session_state.get('show_template_section', False):
+        render_template_section()
+        return
+    
+    # Halaman utama analisis
     st.header("🔬 Analisis Potensi Lestari Ikan Kurisi")
     
-    if st.session_state.use_uploaded_data and st.session_state.uploaded_data:
-        st.success("✅ Menggunakan data yang diupload")
-    else:
-        st.info("📊 Menggunakan data contoh PPN Karangantu, Banten")
+    # Tampilkan informasi metadata jika ada
+    if 'metadata' in st.session_state:
+        meta = st.session_state.metadata
+        st.info(f"**Lokasi:** {meta['lokasi']} | **Spesies:** {meta['spesies']} | **Sumber Data:** {meta['sumber_data']}")
     
     col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
     
@@ -2759,35 +3291,34 @@ def main():
         st.info("""
         **📋 PANDUAN ANALISIS:**
         
-        1. **Konfigurasi Data** (di sidebar):
-           - Pilih sumber data (upload atau contoh)
-           - Atur parameter r (laju pertumbuhan intrinsik dari FishBase)
-           - Pilih model MSY yang akan digunakan (Schaefer 1954/Fox 1970)
+        1. **Pilih Menu** (di sidebar):
+           - **Analisis Utama**: Halaman ini
+           - **Input Manual**: Input data secara manual
+           - **Konfigurasi Lanjutan**: Atur alat tangkap dan faktor konversi
+           - **Upload Data**: Upload data dari Excel/CSV
+           - **Template**: Download template Excel
         
-        2. **Lakukan Analisis**:
+        2. **Atur Parameter** (di sidebar):
+           - Parameter r (laju pertumbuhan intrinsik dari FishBase)
+           - Pilih model MSY (Schaefer 1954/Fox 1970)
+        
+        3. **Lakukan Analisis**:
            - Klik tombol "🚀 Lakukan Analisis"
-           - Tunggu proses perhitungan selesai
         
-        3. **Hasil Analisis** akan muncul di sini:
-           - Data produksi dan upaya
-           - Grafik CPUE dengan analisis trend
-           - Perhitungan CPUE dan FPI
-           - Standardisasi upaya
-           - Analisis MSY/JTB dengan parameter r dari FishBase
-           - Status stok berdasarkan kriteria FAO (2014)
-           - Rekomendasi pengelolaan
+        4. **Hasil Analisis** akan muncul di tab:
+           - Data dasar
+           - Grafik CPUE
+           - Hasil MSY/JTB
+           - Rekomendasi
+           - Ekspor Excel/PDF
         
-        4. **Ekspor Hasil**:
-           - **Excel**: Download semua data dan hasil analisis
-           - **PDF**: Laporan lengkap 7 halaman dengan referensi ilmiah
+        **💡 FITUR BARU:**
+        - **Input Manual**: Input data produksi dan upaya per tahun
+        - **Konfigurasi Alat Tangkap**: Tambah/hapus alat tangkap
+        - **Faktor Konversi**: Ubah satuan dan kalibrasi
+        - **Metadata**: Simpan informasi tambahan
         
-        **💡 INFORMASI PENTING:**
-        - **Parameter r** dapat diubah di sidebar (default: 0.58 dari FishBase)
-        - **JTB (Jumlah Tangkapan yang Diperbolehkan)** = MSY (Maximum Sustainable Yield)
-        - **Nilai 13,609.0211 adalah MSY/JTB dalam kg, BUKAN nilai r!**
-        - **CPUE (Catch Per Unit Effort)** adalah indikator efisiensi penangkapan
-        - **Semua rumus** dilengkapi dengan referensi ilmiah
-        - Analisis ini menggunakan pendekatan ilmiah untuk pengelolaan perikanan berkelanjutan
+        **📞 Bantuan:** Gunakan menu di sidebar untuk navigasi
         """)
 
 # ==============================================
